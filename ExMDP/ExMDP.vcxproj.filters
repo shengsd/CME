@@ -1,0 +1,191 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="源文件">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+      <Extensions>cpp;c;cc;cxx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
+    </Filter>
+    <Filter Include="头文件">
+      <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
+      <Extensions>h;hpp;hxx;hm;inl;inc;xsd</Extensions>
+    </Filter>
+    <Filter Include="资源文件">
+      <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
+      <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
+    </Filter>
+    <Filter Include="TinyXML">
+      <UniqueIdentifier>{77a0feaa-6d5d-49db-9fc7-669267266b10}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="TinyXML\Headers">
+      <UniqueIdentifier>{26c88cdd-391f-4d0e-aec0-24b941eb6772}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="TinyXML\Source">
+      <UniqueIdentifier>{bc164021-a5e3-4a11-ba50-735d0db89d71}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="SBEdecoder">
+      <UniqueIdentifier>{48d7ae4c-7a46-497e-bd86-9e11ec909bbb}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="SBEdecoder\Headers">
+      <UniqueIdentifier>{e1d2334b-58c1-463c-8f01-64969d0e332d}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="SBEdecoder\Source">
+      <UniqueIdentifier>{adf4a398-c2a7-4d23-93dd-e04cbdf47dc1}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <Text Include="ReadMe.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="stdafx.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="targetver.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="ExMDP.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="Channel.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="TinyXML\tinyxml.h">
+      <Filter>TinyXML\Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="TinyXML\tinystr.h">
+      <Filter>TinyXML\Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="Utility.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="Mutex.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="Exceptions.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="Initiator.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="Connector.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="Packet.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="Session.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="otf_api\Field.h">
+      <Filter>SBEdecoder\Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="otf_api\Group.h">
+      <Filter>SBEdecoder\Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="otf_api\Ir.h">
+      <Filter>SBEdecoder\Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="otf_api\IrCollection.h">
+      <Filter>SBEdecoder\Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="otf_api\Listener.h">
+      <Filter>SBEdecoder\Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="otf_api\OnError.h">
+      <Filter>SBEdecoder\Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="otf_api\OnNext.h">
+      <Filter>SBEdecoder\Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="otf_api\OnCompleted.h">
+      <Filter>SBEdecoder\Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="uk_co_real_logic_sbe_ir_generated\VarDataEncoding.hpp">
+      <Filter>SBEdecoder\Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="uk_co_real_logic_sbe_ir_generated\ByteOrderCodec.hpp">
+      <Filter>SBEdecoder\Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="uk_co_real_logic_sbe_ir_generated\FrameCodec.hpp">
+      <Filter>SBEdecoder\Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="uk_co_real_logic_sbe_ir_generated\MessageHeader.hpp">
+      <Filter>SBEdecoder\Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="uk_co_real_logic_sbe_ir_generated\PresenceCodec.hpp">
+      <Filter>SBEdecoder\Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="uk_co_real_logic_sbe_ir_generated\PrimitiveTypeCodec.hpp">
+      <Filter>SBEdecoder\Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="sbe\sbe.hpp">
+      <Filter>SBEdecoder\Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="uk_co_real_logic_sbe_ir_generated\SignalCodec.hpp">
+      <Filter>SBEdecoder\Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="uk_co_real_logic_sbe_ir_generated\TokenCodec.hpp">
+      <Filter>SBEdecoder\Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="resource.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="SBEdecoder.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="stdafx.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="ExMDP.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="dllmain.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="Channel.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="Utility.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="Initiator.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="Connector.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="Packet.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="Session.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="include\otf_api\Ir.cpp">
+      <Filter>SBEdecoder\Source</Filter>
+    </ClCompile>
+    <ClCompile Include="include\otf_api\Listener.cpp">
+      <Filter>SBEdecoder\Source</Filter>
+    </ClCompile>
+    <ClCompile Include="include\TinyXML\tinystr.cpp">
+      <Filter>TinyXML\Source</Filter>
+    </ClCompile>
+    <ClCompile Include="include\TinyXML\tinyxml.cpp">
+      <Filter>TinyXML\Source</Filter>
+    </ClCompile>
+    <ClCompile Include="include\TinyXML\tinyxmlerror.cpp">
+      <Filter>TinyXML\Source</Filter>
+    </ClCompile>
+    <ClCompile Include="include\TinyXML\tinyxmlparser.cpp">
+      <Filter>TinyXML\Source</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="ExMDP.rc">
+      <Filter>资源文件</Filter>
+    </ResourceCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="ClassDiagram.cd" />
+  </ItemGroup>
+</Project>
