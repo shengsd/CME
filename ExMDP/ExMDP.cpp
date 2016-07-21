@@ -1,10 +1,8 @@
 // ExMDP.cpp : 定义 DLL 应用程序的导出函数。
 //
-
 #include "stdafx.h"
 #include "ExMDP.h"
 #include "Initiator.h"
-#include <stdio.h>
 
 MDP::Initiator* p = NULL;
 

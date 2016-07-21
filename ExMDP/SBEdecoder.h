@@ -1,9 +1,5 @@
-#ifndef MDP_PARSER_H
-#define MDP_PARSER_H
-
-#ifdef _MSC_VER
+#pragma once
 #pragma warning( disable : 4503 4355 4786 4290 )
-#endif
 #include "ExMDP.h"
 #include "otf_api/Listener.h"
 #include "otf_api/IrCollection.h"
@@ -417,5 +413,3 @@ namespace MDP
 	};
 
 }
-
-#endif

@@ -1,6 +1,4 @@
-#ifndef MDP_MUTEX_H
-#define MDP_MUTEX_H
-
+#pragma once
 #include "Utility.h"
 
 /// Portable implementation of a mutex.
@@ -103,6 +101,4 @@ public:
 private:
 	Mutex& m_mutex;
 };
-
-#endif	//MDP_MUTEX_H
 

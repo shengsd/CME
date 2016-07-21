@@ -31,3 +31,4 @@ public:
 
 extern CmfcApp theApp;
 extern Worker g_worker;
+

@@ -1,7 +1,6 @@
 #include "stdafx.h"
 #include "Channel.h"
 
-
 namespace MDP
 {
 	Channel::Channel( const ChannelID& channelID, Initiator* pInitiator)

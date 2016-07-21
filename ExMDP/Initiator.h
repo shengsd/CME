@@ -1,5 +1,4 @@
-#ifndef _INITIATOR_H_
-#define _INITIATOR_H_
+#pragma once
 
 #include "Exceptions.h"
 #include "Connector.h"
@@ -240,5 +239,3 @@ namespace MDP
 
 }
 
-
-#endif

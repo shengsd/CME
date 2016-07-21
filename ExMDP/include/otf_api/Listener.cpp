@@ -14,9 +14,6 @@
  * limitations under the License.
  */
 
-// #include <stdio.h>
-// #include <sys/types.h>
-//#include "stdafx.h"
 #include <iostream>
 #include "Listener.h"
 

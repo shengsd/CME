@@ -1,5 +1,4 @@
-#ifndef MDP_PACKET_H_
-#define MDP_PACKET_H_
+#pragma once
 #include <time.h>
 #define MAXPACKETSIZE 4096
 
@@ -59,4 +58,3 @@ namespace MDP
 		time_t m_createTime;
 	};
 }
-#endif

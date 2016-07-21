@@ -27,6 +27,9 @@
     <ClCompile Include="Worker.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
+    <ClCompile Include="AlterDlg.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="mfc.h">
@@ -47,9 +50,15 @@
     <ClInclude Include="Worker.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="AlterDlg.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Image Include="res\mfc.ico">
+      <Filter>资源文件</Filter>
+    </Image>
+    <Image Include="res\icon1.ico">
       <Filter>资源文件</Filter>
     </Image>
   </ItemGroup>
@@ -62,6 +71,7 @@
     <None Include="res\mfc.rc2">
       <Filter>资源文件</Filter>
     </None>
+    <None Include="ClassDiagram.cd" />
   </ItemGroup>
   <ItemGroup>
     <Text Include="ReadMe.txt" />

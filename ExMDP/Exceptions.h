@@ -1,5 +1,4 @@
-#ifndef MDP_EXCEPTIONS_H
-#define MDP_EXCEPTIONS_H
+#pragma once
 
 #include <string>
 #include <stdexcept>
@@ -274,5 +273,3 @@ struct SocketCloseFailed : public SocketException
 
 /*! @} */
 }
-
-#endif //MDP_EXCEPTIONS_H

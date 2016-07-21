@@ -1,19 +1,5 @@
-#pragma once
 #include "stdafx.h"
-
-
-#ifdef USING_STREAMS
-#include <stropts.h>
-#include <sys/conf.h>
-#endif
-
 #include "Utility.h"
-#include <string.h>
-#include <math.h>
-#include <stdio.h>
-#include <algorithm>
-#include <fstream>
-
 
 void string_replace( const std::string& oldValue,
 					const std::string& newValue,

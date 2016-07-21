@@ -5,7 +5,25 @@
 #include "afxwin.h"
 #include "afxcmn.h"
 #include "resource.h"
+#include "afxdtctl.h"
 
+//订单信息列表表头
+#define OrderInfo_Column_ClOrderID 0
+#define OrderInfo_Column_OrigClOrdID 1
+#define OrderInfo_Column_CorrelationClOrdID 2
+#define OrderInfo_Column_Status 3
+#define OrderInfo_Column_OrderID 4
+#define OrderInfo_Column_SecurityDesc 5
+#define OrderInfo_Column_Side 6
+#define OrderInfo_Column_OrderQty 7
+#define OrderInfo_Column_MinQty 8
+#define OrderInfo_Column_MaxShow 9
+#define OrderInfo_Column_OrderType 10
+#define OrderInfo_Column_Price 11
+#define OrderInfo_Column_StopPx 12
+#define OrderInfo_Column_TimeInForce 13
+#define OrderInfo_Column_ExpireDate 14
+#define OrderInfo_Column_Symbol 15
 
 // CmfcDlg 对话框
 class CmfcDlg : public CDialog
@@ -15,7 +33,7 @@ public:
 	CmfcDlg(CWnd* pParent = NULL);	// 标准构造函数
 
 // 对话框数据
-	enum { IDD = IDD_MFC_DIALOG };
+	enum { IDD = IDD_CME_DIALOG };
 
 	protected:
 	virtual void DoDataExchange(CDataExchange* pDX);	// DDX/DDV 支持
@@ -32,31 +50,48 @@ protected:
 	afx_msg HCURSOR OnQueryDragIcon();
 	DECLARE_MESSAGE_MAP()
 public:
-	CListCtrl m_lvDealInfo;
-	CComboBox m_cbExchange;
-	CComboBox m_cbCommodity;
-	CComboBox m_cbContractCode;
-	afx_msg void OnBnClickedButton1();
-	// 买卖方向
-	CComboBox m_cbBS;
-	afx_msg void OnBnClickedButton2();
-	// 委托类型 0:委托 1:撤单 4:补单 D:改单 G:询价
-	CComboBox m_cbEntrustType;
-	// 委托价格
-	CEdit m_editPrice;
-	// 委托数量
-	CEdit m_editQuantity;
-	// 行情信息
-	CListCtrl m_lvQuote;
-	// 日志容器
-	CListBox m_lbLog;
-	// //买卖盘
-	int m_securityID;
-	CListCtrl m_lvOrderBook;
+	afx_msg void OnBnClickedEnter();
 	afx_msg void OnNMDblclkList2(NMHDR *pNMHDR, LRESULT *pResult);
 	afx_msg void OnBnClickedButton3();
-
-	afx_msg void OnBnClickedButton4();
 	afx_msg void OnBnClickedButton5();
-	afx_msg void OnBnClickedButton6();
+
+	//双击订单信息界面，用于改单、撤单
+	afx_msg void OnNMDblclkListOrderInfo(NMHDR *pNMHDR, LRESULT *pResult);
+
+	// 订单信息
+	CListCtrl m_lvOrderInfoList;
+	// 行情信息
+	CListCtrl m_lvQuoteList;
+	// 日志容器
+	CListBox m_lbLogList;
+	// 买卖盘
+	CListCtrl m_lvOrderBookList;
+	// 买卖盘当前显示的合约ID
+	int m_securityID;
+
+	// 交易合约主键 对应MDP3.0的Symbol
+	CComboBox m_SecurityDesc;
+	// 对应MDP3.0的SecurityGroup
+	CComboBox m_Symbol;
+	// 合约类型
+	CComboBox m_SecurityType;
+	// 买卖方向
+	CComboBox m_Side;
+	// 委托类型 0:委托 1:撤单 4:补单 D:改单 G:询价
+	CComboBox m_OrdType;
+	// 委托价格
+	CEdit m_Price;
+	// 止损价
+	CEdit m_StopPx;
+	// 有效期类型
+	CComboBox m_TimeInForce;
+	// 委托数量
+	CEdit m_OrderQty;
+	// 最大显示数量
+	CEdit m_MaxShow;
+	//订单到期日
+	CDateTimeCtrl m_ExpireDate;
+	//订单最少成交量
+	CEdit m_MinQty;
+	afx_msg void OnBnClickedButtonClear();
 };

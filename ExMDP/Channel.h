@@ -2,6 +2,7 @@
 #include "Packet.h"
 #include "Initiator.h"
 #include <fstream>
+#include "Mutex.h"
 
 namespace MDP
 {

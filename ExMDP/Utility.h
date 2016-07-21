@@ -1,5 +1,4 @@
-#ifndef OMDD_UTILITY_H
-#define OMDD_UTILITY_H
+#pragma once
 #ifdef _MSC_VER
 #pragma warning( disable : 4503 4355 4786 4290 )
 #endif
@@ -193,6 +192,3 @@ using std::strtod;
 using std::strtol;
 using std::strerror;
 #endif
-
-
-#endif	//OMDD_UTILITY_H

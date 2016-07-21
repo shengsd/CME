@@ -2,7 +2,21 @@
 #include "Worker.h"
 #include "mfc.h"
 
-void __cdecl WriteLog(int nLevel, const char *szFormat, ...)
+Worker::Worker(void)
+{
+	m_pTradeSession = NULL;
+	m_hEventReadyToTrade = CreateEvent(NULL, TRUE, FALSE, NULL);
+	InitializeCriticalSection(&m_csOrder);
+}
+
+Worker::~Worker(void)
+{
+	if (m_hEventReadyToTrade)
+		CloseHandle(m_hEventReadyToTrade);
+	DeleteCriticalSection(&m_csOrder);
+}
+
+void Worker::WriteLog(int nLevel, const TCHAR *szFormat, ...)
 {
 	static const TCHAR *szLevel[] = {"INFO", "DEBUG", "WARNING", "ERROR", "FATAL"};
 
@@ -17,7 +31,7 @@ void __cdecl WriteLog(int nLevel, const char *szFormat, ...)
 	QueryPerformanceCounter(&PerformanceCount);
 	PerformanceCount.QuadPart *= 1000 * 1000;
 
-	char msg[256] = {0};
+	TCHAR msg[256] = {0};
 	vsprintf(msg, szFormat, va);
 
 	CString str;
@@ -26,23 +40,578 @@ void __cdecl WriteLog(int nLevel, const char *szFormat, ...)
 		PerformanceCount.QuadPart / Frequency.QuadPart, szLevel[nLevel], msg);
 	//	str.Format("%s:%s", szLevel[nLevel], msg);
 
-	CListBox& listBox = g_worker.m_pDlg->m_lbLog;
-	listBox.AddString(str);
-	listBox.SetCurSel(listBox.GetCount()-1);
+	m_pDlg->m_lbLogList.AddString(str);
+	m_pDlg->m_lbLogList.SetCurSel(m_pDlg->m_lbLogList.GetCount()-1);
 }
 
-Worker::Worker(void)
+BOOL Worker::StartTrade()
 {
-	m_hEventReadyToTrade = CreateEvent(NULL, TRUE, FALSE, NULL);
-}
-
-Worker::~Worker(void)
-{
-	if (m_hEventReadyToTrade)
+	char cfgPath[128];
+	GetCurrentDirectory(128, cfgPath);
+	sprintf_s(cfgPath, "%s\\FIX_CME.ini", cfgPath);
+	//启动HSfixEngine
+	if(EngnInit((char*)cfgPath, this) != 0)
 	{
-		CloseHandle(m_hEventReadyToTrade);
+		//sprintf_s(m_szLastErrorInfo, sizeof(m_szLastErrorInfo), "%s", cfgPath);
+		WriteLog(LOG_ERROR, _T("%s"), cfgPath);
+		return FALSE;
+	}
+
+	DWORD dwWaitResult;
+	dwWaitResult = WaitForSingleObject(m_hEventReadyToTrade, 20000);
+	if ( dwWaitResult == WAIT_OBJECT_0 )	//登录成功
+	{
+		WriteLog(LOG_INFO, _T("[Trade]: Start"));
+		return TRUE;
+	}
+	else if ( dwWaitResult == WAIT_TIMEOUT )
+	{
+		WriteLog(LOG_ERROR, "[Trade]: Connect time out, exiting...");
+		//登录超时，关闭引擎
+		EngnDone();
+		return FALSE;
+	}
+	return FALSE;
+}
+
+void Worker::StopTrade()
+{
+	EngnDone();
+	WriteLog(LOG_INFO, _T("[Trade]: Stop"));
+}
+
+
+int Worker::EnterOrder(ORDER& order)
+{
+	//TODO:
+	//ORDER中可能信息不足，需要从合约列表中获取完整信息
+
+	strcpy_s(order.MsgType, "D");
+
+	IMessage* pMsg = CreateMessage("FIX.4.2", "D");
+	HSFixMsgBody* pBody = pMsg->GetMsgBody();
+
+	//TODO:暂时不清楚要放什么字段。Unique account identifier. 
+	pBody->SetFieldValue(FIELD::Account, _T("Hundsun UFOs7"));
+
+	SYSTEMTIME st;
+	GetSystemTime(&st);
+	_stprintf_s(order.ClOrdID, _countof(order.ClOrdID), _T("%02d%02d%02d%03d"), st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
+	//本地单号，在这里用HHMMSSsss表示
+	pBody->SetFieldValue(FIELD::ClOrdID, order.ClOrdID);
+
+	//原始本地单号
+	pBody->SetFieldValue(FIELD::CorrelationClOrdID, order.ClOrdID);
+
+	//Order submitted for automated matching on CME Globex.
+	pBody->SetFieldValue(FIELD::HandlInst, "1");
+
+	//CME合约主键
+	pBody->SetFieldValue(FIELD::SecurityDesc, order.SecurityDesc);
+	pBody->SetFieldValue(FIELD::Symbol, order.Symbol);
+	pBody->SetFieldValue(FIELD::SecurityType, order.SecurityType);
+
+	//委托数量
+	pBody->SetFieldValue(FIELD::OrderQty, order.OrderQty);
+
+	//买卖方向
+	pBody->SetFieldValue(FIELD::Side, order.Side);
+
+	//委托类型
+	pBody->SetFieldValue(FIELD::OrdType, order.OrdType);
+
+	switch (order.OrdType[0])
+	{
+	case _T('1')://Market order (with protection) 
+		break;
+	case _T('2')://Limit order 
+		pBody->SetFieldValue(FIELD::Price, order.Price);
+		break;
+	case _T('3')://Stop order (with protection) 
+		pBody->SetFieldValue(FIELD::StopPx, order.StopPx);
+		break;
+	case _T('4')://Stop-Limit order
+		pBody->SetFieldValue(FIELD::Price, order.Price);
+		pBody->SetFieldValue(FIELD::StopPx, order.StopPx);
+		break;
+	case _T('K')://Market-Limit order
+		break;
+	default:
+		break;
+	}
+	pBody->SetFieldValue(FIELD::OrderQty, order.OrderQty);
+
+	pBody->SetFieldValue(FIELD::TimeInForce, order.TimeInForce);
+	switch (order.TimeInForce[0])
+	{
+	case _T('0')://Day
+		break;
+	case _T('1')://Good Till Cancel (GTC)
+		break;
+	case _T('3')://Fill and Kill
+		pBody->SetFieldValue(FIELD::MinQty, order.MinQty);
+		break;
+	case _T('6')://Good Till Date
+		pBody->SetFieldValue(FIELD::ExpireDate, order.ExpireDate);
+		break;
+	default:
+		break;
+	}
+
+	//ManualOrderIndicator Y=manual N=automated
+	pBody->SetFieldValue(FIELD::ManualOrderIndicator, _T("Y")); 
+
+	//CtiCode TODO: 不是很清楚有什么用
+	pBody->SetFieldValue(FIELD::CtiCode, _T("1")); 
+
+	//The type of business conducted. 0=Customer 1=Firm 
+	pBody->SetFieldValue(FIELD::CustomerOrFirm, _T("1"));
+
+	//发送消息
+	if(m_pTradeSession)
+	{
+		int iRet = SendMessageByID( pMsg, m_pTradeSession );
+		if(iRet != 0)
+		{
+			//_tcscpy_s( order.ErrorInfo, _countof(order.ErrorInfo), _T("Send Fix Message Fail") );
+			AfxMessageBox(_T("Send Fix Message Fail"));
+			return STATUS_FAIL;
+		}
+		DestroyMessage( pMsg );
+	}
+	else
+	{
+		//_tcscpy_s( order.ErrorInfo, _countof(order.ErrorInfo), _T("Fix Session not initialized") );
+		AfxMessageBox(_T("Fix Session not initialized"));
+		return STATUS_FAIL;
+	}
+
+	//保存订单
+	order.OrdStatus[0] = 'P';//Pending
+	AddOrder( order );
+
+	return STATUS_SUCCESS;
+}
+
+int Worker::CancelOrder(ORDER& order)
+{
+	//发撤单消息
+	strcpy_s(order.MsgType, "F");
+
+	IMessage* pMsg = CreateMessage("FIX.4.2", "F");
+	HSFixMsgBody* pBody = pMsg->GetMsgBody();
+
+	//Unique account identifier. TODO:暂时不清楚
+	pBody->SetFieldValue(FIELD::Account, _T("Hundsun UFOs7"));
+
+	SYSTEMTIME st;
+	GetSystemTime(&st);
+	_stprintf_s(order.ClOrdID, _countof(order.ClOrdID), _T("%02d%02d%02d%03d"), st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
+	//新的本地单号
+	pBody->SetFieldValue(FIELD::ClOrdID, order.ClOrdID);
+
+	//主场单号
+	pBody->SetFieldValue(FIELD::OrderID, order.OrderID);
+
+	//上次本地单号
+	strcpy_s(order.OrigClOrdID, order.ClOrdID);
+	pBody->SetFieldValue(FIELD::OrigClOrdID, order.OrigClOrdID);
+
+	//买卖方向
+	pBody->SetFieldValue(FIELD::Side, order.Side);
+
+	//Symbol
+	//pBody->SetFieldValue(FIELD::Symbol, order.Symbol);
+
+	//TransactTime (UTC format YYYYMMDD-HH:MM:SS.sss)
+	TCHAR szTransactTime[64];
+	_stprintf_s(szTransactTime, _countof(szTransactTime), _T("%d%02d%02d-%02d:%02d:%02d.%03d"), st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
+	pBody->SetFieldValue(FIELD::TransactTime, szTransactTime); 
+
+	//ManualOrderIndicator
+	pBody->SetFieldValue(FIELD::ManualOrderIndicator, "Y");
+
+	//SecurityDesc
+	pBody->SetFieldValue(FIELD::SecurityDesc, order.SecurityDesc);
+
+	//SecurityType
+	pBody->SetFieldValue(FIELD::SecurityDesc, order.SecurityType);
+
+	//原始本地单号
+	pBody->SetFieldValue(FIELD::CorrelationClOrdID, order.CorrelationClOrdID);
+
+	//发送消息  //即时失败也不改回被改订单
+	if(m_pTradeSession)
+	{
+		int iRet = SendMessageByID(pMsg, m_pTradeSession);
+		if(iRet != 0)
+		{
+			AfxMessageBox(_T("Send Fix Message Fail"));
+			return STATUS_FAIL;
+		}
+		DestroyMessage(pMsg);
+	}
+	else
+	{
+		AfxMessageBox(_T("Fix Session not initialized"));
+		return STATUS_FAIL;
+	}
+
+	//被改订单状态修改
+	ORDER oldOrder = {0};
+	if (GetOrderByClOrderID(order.OrigClOrdID, oldOrder))
+	{
+		oldOrder.OrdStatus[0] = '-';
+		UpdateOrder(oldOrder);
+	}
+
+	//保存新订单
+	order.OrdStatus[0] = 'P';
+	AddOrder(order);
+
+	return STATUS_SUCCESS;
+}
+
+int Worker::ReplaceOrder(ORDER& order)
+{
+	//发改单消息
+	strcpy_s(order.MsgType, "G");
+
+	IMessage* pMsg = CreateMessage("FIX.4.2", "G");
+	HSFixMsgBody* pBody = pMsg->GetMsgBody();
+
+	//Unique account identifier. TODO:暂时不清楚
+	pBody->SetFieldValue(FIELD::Account, _T("Hundsun UFOs7"));
+
+	SYSTEMTIME st;
+	GetSystemTime(&st);
+	_stprintf_s(order.ClOrdID, _countof(order.ClOrdID), _T("%02d%02d%02d%03d"), st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
+	//新的本地单号
+	pBody->SetFieldValue(FIELD::ClOrdID, order.ClOrdID);
+
+	//主场单号
+	pBody->SetFieldValue(FIELD::OrderID, order.OrderID);
+
+	//HandInst
+	pBody->SetFieldValue(FIELD::HandlInst, "1");
+	
+	//改单数量
+	pBody->SetFieldValue(FIELD::OrderQty, order.OrderQty);
+
+	//CustOrderHandlingInst
+
+	//OrderType
+	pBody->SetFieldValue(FIELD::OrdType, order.OrdType);
+
+	//上次本地单号
+	strcpy_s(order.OrigClOrdID, order.ClOrdID);
+	pBody->SetFieldValue(FIELD::OrigClOrdID, order.OrigClOrdID);
+
+	//买卖方向
+	pBody->SetFieldValue(FIELD::Side, order.Side);
+
+	//Symbol
+	//pBody->SetFieldValue(FIELD::Symbol, order.Symbol);
+
+	//TransactTime (UTC format YYYYMMDD-HH:MM:SS.sss)
+	TCHAR szTransactTime[64];
+	_stprintf_s(szTransactTime, _countof(szTransactTime), _T("%d%02d%02d-%02d:%02d:%02d.%03d"), st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
+	pBody->SetFieldValue(FIELD::TransactTime, szTransactTime); 
+
+	//ManualOrderIndicator
+	pBody->SetFieldValue(FIELD::ManualOrderIndicator, "Y");
+
+	//SecurityDesc
+	pBody->SetFieldValue(FIELD::SecurityDesc, order.SecurityDesc);
+
+	//SecurityType
+	pBody->SetFieldValue(FIELD::SecurityDesc, order.SecurityType);
+
+	//原始本地单号
+	pBody->SetFieldValue(FIELD::CorrelationClOrdID, order.CorrelationClOrdID);
+
+	//发送消息  //即时失败也不改回被改订单
+	if(m_pTradeSession)
+	{
+		int iRet = SendMessageByID(pMsg, m_pTradeSession);
+		if(iRet != 0)
+		{
+			AfxMessageBox(_T("Send Fix Message Fail"));
+			return STATUS_FAIL;
+		}
+		DestroyMessage(pMsg);
+	}
+	else
+	{
+		AfxMessageBox(_T("Fix Session not initialized"));
+		return STATUS_FAIL;
+	}
+
+	//被改订单状态修改
+	ORDER oldOrder = {0};
+	if (GetOrderByClOrderID(order.OrigClOrdID, oldOrder))
+	{
+		oldOrder.OrdStatus[0] = '-';
+		UpdateOrder(oldOrder);
+	}
+
+	//保存新订单
+	order.OrdStatus[0] = 'P';
+	AddOrder(order);
+
+	return STATUS_SUCCESS;
+
+}
+
+
+void Worker::ExecReport(const IMessage* pMsg)
+{
+	ORDER order = {0};
+	EXCREPORT excReport = {0};
+	HSFixMsgBody* pBody = pMsg->GetMsgBody();
+
+	strcpy_s(excReport.ExecType, pBody->GetFieldValueDefault(FIELD::ExecType, "") );//回报类型
+	strcpy_s(excReport.OrdStatus, pBody->GetFieldValueDefault(FIELD::OrdStatus, "") );//订单状态
+	strcpy_s(excReport.ClOrdID, pBody->GetFieldValueDefault(FIELD::ClOrdID, "") );
+	strcpy_s(excReport.OrigClOrdID, pBody->GetFieldValueDefault(FIELD::OrigClOrdID, "") );
+	strcpy_s(excReport.CorrelationClOrdID, pBody->GetFieldValueDefault(FIELD::CorrelationClOrdID, "") );
+	strcpy_s(excReport.OrderID, pBody->GetFieldValueDefault(FIELD::OrderID, "") );
+	strcpy_s(excReport.SecurityDesc, pBody->GetFieldValueDefault(FIELD::SecurityDesc, "") );
+	strcpy_s(excReport.Side, pBody->GetFieldValueDefault(FIELD::Side, "") );
+	strcpy_s(excReport.OrderQty, pBody->GetFieldValueDefault(FIELD::OrderQty, "") );
+	strcpy_s(excReport.MinQty, pBody->GetFieldValueDefault(FIELD::MinQty, "") );
+	strcpy_s(excReport.MaxShow, pBody->GetFieldValueDefault(FIELD::MaxShow, "") );
+	strcpy_s(excReport.OrdType, pBody->GetFieldValueDefault(FIELD::OrdType, "") );
+	strcpy_s(excReport.Price, pBody->GetFieldValueDefault(FIELD::Price, "") );
+	strcpy_s(excReport.StopPx, pBody->GetFieldValueDefault(FIELD::StopPx, "") );
+	strcpy_s(excReport.TimeInForce, pBody->GetFieldValueDefault(FIELD::TimeInForce, "") );
+	strcpy_s(excReport.ExpireDate, pBody->GetFieldValueDefault(FIELD::ExpireDate, "") );
+
+	//Order Status Request Acknowledgment
+	//查询订单反馈
+	if ( 'I' == excReport.ExecType[0] )
+	{
+		ExtractOrderFromExcReport(order, excReport);
+		AddOrder(order);
+		return ;
+	}
+
+	//其它都是订单反馈，成交回报
+	//按本地单号找订单
+	if ( FALSE == GetOrderByClOrderID(excReport.ClOrdID, order) )
+	{
+		//找不到订单报错，结束
+		WriteLog(LOG_ERROR, _T("Can't find the order, ClOrdID:%s"), excReport.ClOrdID);
+		return ;
+	}
+
+	//OrderInfoList只更新订单状态
+	strcpy_s( order.OrdStatus, excReport.OrdStatus );
+	UpdateOrder(order);
+
+	//成交信息通过LogList展示
+	switch (excReport.OrdStatus[0])//其它反馈类型可根据订单状态判别
+	{
+	case '0'://Order Creation
+		break;
+	case '4'://Order Cancel
+		break;
+	case '5'://Order Modify
+		break;
+	case '1'://Partial fill Notice
+		WriteLog(LOG_INFO, _T("[ExecReport]: Partial Fill Notice,  ClOrdID=%s, OrderID=%s, LastPx=%s, LastQty=%s"), excReport.ClOrdID, excReport.OrderID, excReport.LastPx, excReport.LastQty);
+		break;
+	case '2'://Complete fill Notice
+		WriteLog(LOG_INFO, _T("[ExecReport]: Complete Fill Notice,  ClOrdID=%s, OrderID=%s, LastPx=%s, LastQty=%s"), excReport.ClOrdID, excReport.OrderID, excReport.LastPx, excReport.LastQty);
+		break;
+	case 'C'://Order Elimination
+		break;
+	case '8'://Rejected
+		break;
+	case 'H'://Trade Cancelled
+		break;
+	default:
+		break;
+	}
+
+}
+
+
+void Worker::AddOrder(ORDER& order)
+{
+	//保存
+	EnterCriticalSection(&m_csOrder);
+	m_mapClOrderIDToOrder[order.ClOrdID] = order;
+	LeaveCriticalSection(&m_csOrder);
+
+	//界面展示
+	m_pDlg->m_lvOrderInfoList.InsertItem(0, order.ClOrdID);
+
+	m_pDlg->m_lvOrderInfoList.SetItemText(0, OrderInfo_Column_OrigClOrdID, order.OrigClOrdID);
+
+	m_pDlg->m_lvOrderInfoList.SetItemText(0, OrderInfo_Column_CorrelationClOrdID, order.CorrelationClOrdID);
+
+	switch (order.OrdStatus[0])
+	{
+	case _T('P')://新订单
+		{
+			if (_T('D') == order.MsgType[0])//下单
+				m_pDlg->m_lvOrderInfoList.SetItemText(0, OrderInfo_Column_Status, _T("Pending New"));
+			else if (_T('F') == order.MsgType[0])//撤单
+				m_pDlg->m_lvOrderInfoList.SetItemText(0, OrderInfo_Column_Status, _T("Pending Cancel"));
+			else if (_T('G') == order.MsgType[0])//改单
+				m_pDlg->m_lvOrderInfoList.SetItemText(0, OrderInfo_Column_Status, _T("Pending Modification"));
+		}
+		break;
+	case '0'://Order Creation
+		m_pDlg->m_lvOrderInfoList.SetItemText(0, OrderInfo_Column_Status, _T("New"));
+		break;
+	case '1'://Partial fill Notice
+		m_pDlg->m_lvOrderInfoList.SetItemText(0, OrderInfo_Column_Status, _T("Partial filled"));
+		break;
+	case 'U'://Undefined
+		m_pDlg->m_lvOrderInfoList.SetItemText(0, OrderInfo_Column_Status, _T("Undefined"));
+		break;
+	default: 
+		WriteLog(LOG_ERROR, _T("[AddOrderInfoList]: OrdStatus=%s"), order.OrdStatus);
+		m_pDlg->m_lvOrderInfoList.DeleteItem(0);
+		return;
+	}
+	m_pDlg->m_lvOrderInfoList.SetItemText(0, OrderInfo_Column_OrderID, order.OrderID);
+
+	m_pDlg->m_lvOrderInfoList.SetItemText(0, OrderInfo_Column_SecurityDesc, order.SecurityDesc);
+
+	m_pDlg->m_lvOrderInfoList.SetItemText(0, OrderInfo_Column_Side, order.Side[0] == _T('1') ? _T("Buy") : _T("Sell"));
+
+	m_pDlg->m_lvOrderInfoList.SetItemText(0, OrderInfo_Column_OrderQty, order.OrderQty);
+
+	m_pDlg->m_lvOrderInfoList.SetItemText(0, OrderInfo_Column_MaxShow, order.MaxShow);
+
+	CString csOrdType;
+	switch (order.OrdType[0])
+	{
+	case _T('1'): csOrdType = _T("Market"); break;
+	case _T('2'): csOrdType = _T("Limit"); break;
+	case _T('3'): csOrdType = _T("Stop"); break;
+	case _T('4'): csOrdType = _T("StopLimit"); break;
+	case _T('K'): csOrdType = _T("MarketLimit"); break;
+	default: break;
+	}
+	m_pDlg->m_lvOrderInfoList.SetItemText(0, OrderInfo_Column_OrderType, csOrdType);
+
+	m_pDlg->m_lvOrderInfoList.SetItemText(0, OrderInfo_Column_Price, order.Price);
+
+	m_pDlg->m_lvOrderInfoList.SetItemText(0, OrderInfo_Column_StopPx, order.StopPx);
+
+	CString csTimeInForce;
+	switch (order.TimeInForce[0])
+	{
+	case _T('0'): csTimeInForce = _T("Day"); break;
+	case _T('1'): csTimeInForce = _T("GTC"); break;
+	case _T('3'): csTimeInForce = _T("FaK"); break;
+	case _T('6'): csTimeInForce = _T("GTD"); break;
+	default: break;
+	}
+
+	m_pDlg->m_lvOrderInfoList.SetItemText(0, OrderInfo_Column_TimeInForce, csTimeInForce);
+
+	m_pDlg->m_lvOrderInfoList.SetItemText(0, OrderInfo_Column_MinQty, order.MinQty);
+
+	m_pDlg->m_lvOrderInfoList.SetItemText(0, OrderInfo_Column_ExpireDate, order.ExpireDate);
+
+}
+
+void Worker::UpdateOrder(ORDER& order)
+{
+	//更新
+	EnterCriticalSection(&m_csOrder);
+	m_mapClOrderIDToOrder[order.ClOrdID] = order;
+	LeaveCriticalSection(&m_csOrder);
+
+	//界面
+	LVFINDINFO info;
+	int nIndex;
+
+	info.flags = LVFI_STRING;
+	info.psz = order.ClOrdID;
+
+	if ((nIndex = m_pDlg->m_lvOrderInfoList.FindItem(&info)) == -1)
+	{
+		WriteLog(LOG_ERROR, _T("[UpdateOrderInfoList]: Can't find Order. ClOrderID:%s"), order.ClOrdID);
+		return;
+	}
+
+	switch (order.OrdStatus[0])
+	{
+	case '-'://被改、撤
+		m_pDlg->m_lvOrderInfoList.SetItemText(0, OrderInfo_Column_Status, _T("Disabled"));
+		break;
+	case '0'://Order Creation
+		m_pDlg->m_lvOrderInfoList.SetItemText(0, OrderInfo_Column_Status, _T("New"));
+		break;
+	case '4'://Order Cancel
+		m_pDlg->m_lvOrderInfoList.SetItemText(0, OrderInfo_Column_Status, _T("Cancelled"));
+		break;
+	case '5'://Order Modify
+		m_pDlg->m_lvOrderInfoList.SetItemText(0, OrderInfo_Column_Status, _T("Modified"));
+		break;
+	case '1'://Partial fill Notice
+		m_pDlg->m_lvOrderInfoList.SetItemText(0, OrderInfo_Column_Status, _T("Partial filled"));
+		break;
+	case '2'://Complete fill Notice
+		m_pDlg->m_lvOrderInfoList.SetItemText(0, OrderInfo_Column_Status, _T("Complete filled"));
+		break;
+	case 'C'://Order Elimination
+		m_pDlg->m_lvOrderInfoList.SetItemText(0, OrderInfo_Column_Status, _T("Expired"));
+		break;
+	case '8'://Rejected
+		m_pDlg->m_lvOrderInfoList.SetItemText(0, OrderInfo_Column_Status, _T("Rejected"));
+		break;
+	case 'H'://Trade Cancel
+		m_pDlg->m_lvOrderInfoList.SetItemText(0, OrderInfo_Column_Status, _T("Trade Cancelled"));
+		break;
+	default: 
+		WriteLog(LOG_ERROR, _T("[UpdateOrderInfoList]: OrdStatus=%s"), order.OrdStatus);
+		return;
 	}
 }
+
+void Worker::ExtractOrderFromExcReport( ORDER& order, const EXCREPORT& excReport )
+{
+	strcpy_s(order.ClOrdID, excReport.ClOrdID);
+	strcpy_s(order.OrigClOrdID, excReport.OrigClOrdID);
+	strcpy_s(order.CorrelationClOrdID, excReport.CorrelationClOrdID);
+	strcpy_s(order.OrdStatus, excReport.OrdStatus);
+	strcpy_s(order.OrderID, excReport.OrderID);
+	strcpy_s(order.SecurityDesc, excReport.SecurityDesc);
+	strcpy_s(order.Side, excReport.Side);
+	strcpy_s(order.OrderQty, excReport.OrderQty);
+	strcpy_s(order.MinQty, excReport.MinQty);
+	strcpy_s(order.MaxShow, excReport.MaxShow);
+	strcpy_s(order.OrdType, excReport.OrdType);
+	strcpy_s(order.Price, excReport.Price);
+	strcpy_s(order.StopPx, excReport.StopPx);
+	strcpy_s(order.TimeInForce, excReport.TimeInForce);
+	strcpy_s(order.ExpireDate, excReport.ExpireDate);
+}
+
+BOOL Worker::GetOrderByClOrderID(const CString csClOrderID, ORDER& order)
+{
+	EnterCriticalSection(&m_csOrder);
+	MapClOrderIDToORDER::iterator i = m_mapClOrderIDToOrder.find(csClOrderID);
+	if (i != m_mapClOrderIDToOrder.end())
+	{
+		order = i->second;
+		LeaveCriticalSection(&m_csOrder);
+		return TRUE;
+	}
+	else
+	{
+		LeaveCriticalSection(&m_csOrder);
+		return FALSE; 
+	}
+}
+
 
 UINT Worker::startQuote()
 {
@@ -90,239 +659,12 @@ UINT Worker::stopQuote()
 	return 0;
 }
 
-UINT Worker::startTrade()
-{
-	char cfgPath[128];
-	GetCurrentDirectory(128, cfgPath);
-	sprintf_s(cfgPath, "%s\\FIX_CME.ini", cfgPath);
-	WriteLog(LOG_INFO, "%s", cfgPath);
-	if(EngnInit((char*)cfgPath, this) != 0)
-	{
-		WriteLog(LOG_ERROR, "[startTrade]:EngnInit failed.");
-		return 1;
-	}
-	WriteLog(LOG_INFO, "[startTrade]:EngnInit called.");
-
-	DWORD dwWaitResult;
-	dwWaitResult = WaitForSingleObject(m_hEventReadyToTrade, 10000);
-	if ( dwWaitResult == WAIT_OBJECT_0 )	//登录成功
-	{
-		WriteLog(LOG_INFO, "[start]: Ready to trade.");
-		return 0;
-	}
-	else if ( dwWaitResult == WAIT_TIMEOUT )
-	{
-		WriteLog(LOG_ERROR, "[start]:Connect time out, not ready to trade.");
-		EngnDone();
-	}
-	return 1;
-}
-
-
-UINT Worker::stopTrade()
-{
-	EngnDone();
-	WriteLog(LOG_INFO, "[stopTrade]:EngnDone() called.");
-	return 0;
-}
-
-
-void FUNCTION_CALL_MODE Worker::onEvent( const ISessionID * lpSessionID, int iEventID )
-{
-	//	out<<"[OnEvent  ] "<<lpSessionID->lpSenderCompID;
-	WriteLog(LOG_INFO, "[onEvent] Called ");
-	switch(iEventID)
-	{
-	case 1:
-		WriteLog(LOG_INFO, "connect failed...\n");
-		break;
-	case 2:
-		WriteLog(LOG_INFO, "re-connect...\n");
-		break;
-	case 3:
-		WriteLog(LOG_INFO, "connecting...\n");
-		break;
-	default:
-		WriteLog(LOG_INFO, "onEvent default\n");
-		//	cout<<" iEventID:"<<iEventID<<endl;
-	}
-}
-
-void FUNCTION_CALL_MODE Worker::OnCreate( const ISessionID * lpSessionID )
-{
-	WriteLog(LOG_INFO, "[OnCreate] Called \n");
-}
-
-void FUNCTION_CALL_MODE Worker::OnLogon( const ISessionID * lpSessionID )
-{
-	WriteLog(LOG_INFO, "[OnLogon] Called \n");
-	//	cout<<"[OnLogon  ]: "<<lpSessionID->lpTargetCompID<<endl;
-	//	int size = sizeof(HSFixMsgBody);	
-
-	m_pTradeSession = (ISessionID* )lpSessionID;
-	if(m_hEventReadyToTrade)
-	{
-		SetEvent(m_hEventReadyToTrade);
-	}
-}
-
-void FUNCTION_CALL_MODE Worker::OnLogout( const ISessionID * lpSessionID )
-{
-	WriteLog(LOG_INFO, "[OnLogout] Called \n");
-}
-
-void FUNCTION_CALL_MODE Worker::ToAdmin( IMessage * lpMsg, const ISessionID * lpSessionID )
-{
-	//  g_lpSessionID = (ISessionID* )lpSessionID;
-	char szLastMsgSeqNumProcessed[9] = {0};
-	ISession* pSession = GetSessionByID((ISessionID *)lpSessionID);
-	const char* msgType = lpMsg->GetMessageType();
-	HSFixHeader *pHeader = lpMsg->GetHeader();
-	HSFixMsgBody *pBody = lpMsg->GetMsgBody();
-
-	pHeader->SetFieldValue(FIELD::SenderSubID, "ShengShaoDong");
-	pHeader->SetFieldValue(FIELD::TargetSubID, "G");
-	pHeader->SetFieldValue(FIELD::SenderLocationID, "CN");
-	pHeader->SetFieldValue(FIELD::LastMsgSeqNumProcessed, _ltoa(pSession->getExpectedTargetNum() - 1, szLastMsgSeqNumProcessed, 10 ) );
-
-	if ( strncmp(msgType, "0", 1 ) == 0)
-	{
-		WriteLog(LOG_INFO, "[Worker::ToAdmin]:heartbeat message send...\n");
-	}
-	else if ( strncmp(msgType, "2", 1) == 0 )	//CME规定重发请求的序列号范围必须在2500以内,所以在此干预
-	{
-		long uBeginSeqNum = atol(pBody->GetFieldValue(FIELD::BeginSeqNo));
-		long uLastSeqNumProcessed = pSession->getExpectedTargetNum()-1;
-		if ( uLastSeqNumProcessed - uBeginSeqNum >= 2500 )
-		{
-			char szEndSeqNo[9] = {0};
-			pBody->SetFieldValue(FIELD::EndSeqNo, _ltoa(uBeginSeqNum+2499, szEndSeqNo, 10));
-		}
-		WriteLog(LOG_INFO, "[Worker::ToAdmin]:resend request message send...\n");
-	}
-	else if (strncmp(msgType, "4", 1) == 0)
-	{
-		WriteLog(LOG_INFO, "[Worker::ToAdmin]:sequense reset message send...\n");
-	}
-	else if(strncmp(msgType, "5", 1) == 0)
-	{
-		WriteLog(LOG_INFO, "[Worker::ToAdmin]:logout message send...\n");
-	}
-	else if(strncmp(msgType, "A", 1) == 0)
-	{
-		//登录消息，可以在此处增加用户名和密码字段
-		pBody->SetFieldValue(FIELD::RawData, "JOXKS");
-		pBody->SetFieldValue(FIELD::RawDataLength, "5");
-		pBody->SetFieldValue(FIELD::ResetSeqNumFlag, "N");
-		pBody->SetFieldValue(FIELD::EncryptMethod, "0");
-		pBody->SetFieldValue(FIELD::ApplicationSystemName, "Hundsun UFOs");
-		pBody->SetFieldValue(FIELD::TradingSystemVersion, "V7.0");
-		pBody->SetFieldValue(FIELD::ApplicationSystemVendor, "Hundsun");
-		//pHeader->SetFieldValue(FIELD::SenderCompID, "N");
-		WriteLog(LOG_INFO, "[Worker::ToAdmin]:logon message send...\n");
-	}
-}
-
-int FUNCTION_CALL_MODE Worker::ToApp( IMessage * lpMsg, const ISessionID * lpSessionID )
-{
-	WriteLog(LOG_INFO, "[Worker::ToApp]: called.\n");
-	char szLastMsgSeqNumProcessed[9] = {0};
-	ISession* pSession = GetSessionByID((ISessionID *)lpSessionID);
-	HSFixHeader *pHeader = lpMsg->GetHeader();
-	HSFixMsgBody *body = lpMsg->GetMsgBody();
-	pHeader->SetFieldValue(FIELD::SenderSubID, "GZENG");
-	pHeader->SetFieldValue(FIELD::TargetSubID, "G");
-	pHeader->SetFieldValue(FIELD::SenderLocationID, "CN");
-	pHeader->SetFieldValue(FIELD::LastMsgSeqNumProcessed, _ltoa(pSession->getExpectedTargetNum() - 1, szLastMsgSeqNumProcessed, 10 ) );
-	return 0;
-}
-
-int FUNCTION_CALL_MODE Worker::FromAdmin( const IMessage * lpMsg , const ISessionID * lpSessionID )
-{
-	const char* msgType = lpMsg->GetMessageType();
-	HSFixHeader* pHeader = lpMsg->GetHeader();
-//	strcpy(m_lastSeqNumReceived, pHeader->GetFieldValue(FIELD::MsgSeqNum));
-
-	if (strncmp(msgType, "A", 1) == 0)			//CME Globex发来的登陆确认消息
-	{
-		WriteLog(LOG_INFO, "[Worker::FromAdmin]:received a Logon message\n");
-	} 
-	else if (strncmp(msgType, "5", 1) == 0)		//CME Globex发来的登出消息
-	{
-		WriteLog(LOG_INFO, "[Worker::FromAdmin]:received a Logout message\n");
-	}
-	else if (strncmp(msgType, "0", 1) == 0)		//CME Globex发来的心跳消息
-	{
-		WriteLog(LOG_INFO, "[Worker::FromAdmin]:received a heartbeat message\n");
-	}
-	else if (strncmp(msgType, "1", 1) == 0)		//CME Globex发来的心跳测试消息
-	{
-		WriteLog(LOG_INFO, "[Worker::FromAdmin]:received a test request message\n");
-	}
-	else if (strncmp(msgType, "2", 1) == 0)		//CME Globex发来的重发请求消息
-	{
-		char cPossDupFlag = pHeader->GetFieldValueDefault(FIELD::PossDupFlag, "E")[0];
-		if (cPossDupFlag == 'Y')
-		{
-			//TODO:不回应重复的重发请求，暂无实现方法
-			return 0;
-		}
-		WriteLog(LOG_INFO, "[Worker::FromAdmin]:received a resend request message\n");
-	}
-	else if (strncmp(msgType, "3", 1) == 0)		//CME Globex发来的会话层拒绝消息
-	{
-		WriteLog(LOG_INFO, "[Worker::FromAdmin]:received a session level reject message\n");
-	}
-	else if (strncmp(msgType, "4", 1) == 0)		//CME Globex发来的Sequence Reset消息
-	{
-		WriteLog(LOG_INFO, "[Worker::FromAdmin]:received a Sequence Reset message\n");
-	}
-	else if (strncmp(msgType, "j", 1) == 0)		//CME Globex发来的应用层拒绝消息
-	{
-		WriteLog(LOG_INFO, "[Worker::FromAdmin]:received a business level reject message\n");
-	}
-	else
-	{
-		WriteLog(LOG_DEBUG, "[Worker::FromAdmin]Unhandle message. Message type: %s\n", msgType);
-	}
-	return 0;
-}
-
-
-int FUNCTION_CALL_MODE Worker::FromApp( const IMessage *lpMsg , const ISessionID *lpSessionID )
-{
-	const char* msgType = lpMsg->GetMessageType();
-	HSFixHeader* pHeader = lpMsg->GetHeader();
-	//strcpy(m_lastSeqNumReceived, pHeader->GetFieldValue(FIELD::MsgSeqNum));
-
-	if(strncmp(msgType, "8", 1) == 0)  // Execution Report - Order Creation, Cancel or Modify
-	{
-		WriteLog(LOG_INFO, "[Worker::FromApp]:Execution Report received\n");
-		//ExecReport(lpMsg);
-	}
-	else if(strncmp(msgType, "9", 1) == 0)  // Order Cancel Reject (tag 35-MsgType=9)
-	{
-		WriteLog(LOG_INFO, "[Worker::FromApp]:Order Cancel Reject received\n");
-		//CancelReject(lpMsg);
-	}
-	else if (strncmp(msgType, "b", 1) == 0)
-	{
-		WriteLog(LOG_INFO, "[Worker::FromApp]:Quote Acknowledgment received\n");
-	}
-	else
-	{
-		WriteLog(LOG_DEBUG, "[Worker::FromApp]Unhandle message. Message type: %c\n", msgType);
-	}
-	return 0;
-}
 
 
 void Worker::OnUpdate(MDPFieldMap* pFieldMap)
 {
 	if (pFieldMap == NULL)
-	{
 		return;
-	}
 
 	MDPField* pField = NULL;
 	MDPFieldMap* pFieldMapInGroup = NULL;
@@ -334,10 +676,10 @@ void Worker::OnUpdate(MDPFieldMap* pFieldMap)
 	{
 		inst.SecurityID = (int)pField->getInt();
 	}
-	
+
 	if (inst.SecurityID <= 0)
 	{
-		m_fLog << "[OnUpdate]: error security id:" << inst.SecurityID << endl;
+		m_fLog << "[OnUpdate]: error security id:" << inst.SecurityID << std::endl;
 		return ;
 	}
 
@@ -370,7 +712,7 @@ void Worker::OnUpdate(MDPFieldMap* pFieldMap)
 	}
 	/************************************新增合约****************************************/
 	//先获取以下关键字段
-	m_fLog << "[OnUpdate]: security id:" << inst.SecurityID << ", action: " << action << endl;
+	m_fLog << "[OnUpdate]: security id:" << inst.SecurityID << ", action: " << action << std::endl;
 
 	if (pField = pFieldMap->getField(FIELD::SecurityExchange))//外部交易所
 	{
@@ -732,7 +1074,7 @@ void Worker::SnapShot(MDPFieldMap* pFieldMap)
 	}
 
 	//WriteLog(LOG_INFO, "[SnapShot]:push quote security ID:%d", qi->securityID);
-	m_fLog << "[SnapShot]:push quote security ID:" << qi->securityID << endl;
+	m_fLog << "[SnapShot]:push quote security ID:" << qi->securityID << std::endl;
 	PushQuote(qi);
 }
 
@@ -802,7 +1144,7 @@ void Worker::UpdateBook(MDPFieldMap* pFieldMap)
 			}
 			else
 			{
-				m_fLog << "Can't find the existing QuoteItem, newing one" << endl;
+				m_fLog << "Can't find the existing QuoteItem, newing one" << std::endl;
 				qi = new QuoteItem;
 				memset(qi, 0, sizeof(QuoteItem));
 				m_mapSecurityID2Quote[nSecurityID] = qi;
@@ -1455,36 +1797,36 @@ void Worker::SecurityStatus(MDPFieldMap* pFieldMap)
 		switch (nSecurityTradingStatus)
 		{
 		case 2://Trading halt
-			qi->cMarketStatus = MKT_PAUSE;
-			break;
-			// 		case 4://Close
-			// 			pInst->cMarketStatus = MKT_PRECLOSE;
-			// 			break;
-			// 		case 15://New Price Indication
-			// 			break;
+		qi->cMarketStatus = MKT_PAUSE;
+		break;
+		// 		case 4://Close
+		// 			pInst->cMarketStatus = MKT_PRECLOSE;
+		// 			break;
+		// 		case 15://New Price Indication
+		// 			break;
 		case 17://Ready to trade (start of session)
-			qi->cMarketStatus = MKT_OPEN;
-			break;
+		qi->cMarketStatus = MKT_OPEN;
+		break;
 		case 18://Not available for trading
-			qi->cMarketStatus = MKT_CLOSE;
-			break;
+		qi->cMarketStatus = MKT_CLOSE;
+		break;
 		case 20://Unknown or Invalid
-			qi->cMarketStatus = MKT_UNKNOW;
-			break;
+		qi->cMarketStatus = MKT_UNKNOW;
+		break;
 		case 21://Pre Open
-			qi->cMarketStatus = MKT_PREOPEN;
-			break;
+		qi->cMarketStatus = MKT_PREOPEN;
+		break;
 		case 24://Pre-Cross
-			break;
+		break;
 		case 25://Cross
-			break;
-			// 		case 26://Post Close
-			// 			pInst->cMarketStatus = MKT_CLOSE;
-			// 			break;
+		break;
+		// 		case 26://Post Close
+		// 			pInst->cMarketStatus = MKT_CLOSE;
+		// 			break;
 		case 103://No Change
-			break;
+		break;
 		default:
-			break;
+		break;
 		}
 		*/
 	}
@@ -1607,18 +1949,18 @@ void Worker::PushQuote( const QuoteItem* qi )
 	m_fLog << "[PushQuote]:security id:" << qi->securityID << endl;
 	for (int k = 0; k < 10; k++)
 	{
-		m_fLog << "B  " << qi->bidPrice[k];
-		m_fLog << "  No  "  << qi->bidVolume[k];
-		m_fLog << "  [" << k << "]  ";
-		m_fLog << "  S  " << qi->askPrice[k];
-		m_fLog << "  No  "  << qi->askVolume[k];
-		m_fLog << endl;
+	m_fLog << "B  " << qi->bidPrice[k];
+	m_fLog << "  No  "  << qi->bidVolume[k];
+	m_fLog << "  [" << k << "]  ";
+	m_fLog << "  S  " << qi->askPrice[k];
+	m_fLog << "  No  "  << qi->askVolume[k];
+	m_fLog << endl;
 	}
 	*/
 	int i, nIndex;
 	CString s;
-	CListCtrl& lvQuote = m_pDlg->m_lvQuote;
-	CListCtrl& lvOrderBook = m_pDlg->m_lvOrderBook;
+	CListCtrl& lvQuote = m_pDlg->m_lvQuoteList;
+	CListCtrl& lvOrderBook = m_pDlg->m_lvOrderBookList;
 	BOOL bInTheList = FALSE;
 
 	for (i = 0; i < lvQuote.GetItemCount(); i++)
@@ -1849,3 +2191,197 @@ void Worker::MergeBook(ConsolidatedBook* conBook, const QuoteItem* qi)
 		}
 	}
 }
+
+
+void FUNCTION_CALL_MODE Worker::onEvent( const ISessionID * lpSessionID, int iEventID )
+{
+	//	out<<"[OnEvent  ] "<<lpSessionID->lpSenderCompID;
+	WriteLog(LOG_INFO, "[onEvent] Called ");
+	switch(iEventID)
+	{
+	case 1:
+		WriteLog(LOG_INFO, "connect failed...\n");
+		break;
+	case 2:
+		WriteLog(LOG_INFO, "re-connect...\n");
+		break;
+	case 3:
+		WriteLog(LOG_INFO, "connecting...\n");
+		break;
+	default:
+		WriteLog(LOG_INFO, "onEvent default\n");
+		//	cout<<" iEventID:"<<iEventID<<endl;
+		break;
+	}
+}
+
+void FUNCTION_CALL_MODE Worker::OnCreate( const ISessionID * lpSessionID )
+{
+	WriteLog(LOG_INFO, "[OnCreate] Called \n");
+}
+
+void FUNCTION_CALL_MODE Worker::OnLogon( const ISessionID * lpSessionID )
+{
+	WriteLog(LOG_INFO, "[OnLogon] Called \n");
+	//	cout<<"[OnLogon  ]: "<<lpSessionID->lpTargetCompID<<endl;
+	//	int size = sizeof(HSFixMsgBody);	
+
+	m_pTradeSession = (ISessionID* )lpSessionID;
+	if(m_hEventReadyToTrade)
+	{
+		SetEvent(m_hEventReadyToTrade);
+	}
+}
+
+void FUNCTION_CALL_MODE Worker::OnLogout( const ISessionID * lpSessionID )
+{
+	WriteLog(LOG_INFO, "[OnLogout] Called \n");
+}
+
+void FUNCTION_CALL_MODE Worker::ToAdmin( IMessage * lpMsg, const ISessionID * lpSessionID )
+{
+	//  g_lpSessionID = (ISessionID* )lpSessionID;
+	char szLastMsgSeqNumProcessed[9] = {0};
+	ISession* pSession = GetSessionByID((ISessionID *)lpSessionID);
+	const char* msgType = lpMsg->GetMessageType();
+	HSFixHeader *pHeader = lpMsg->GetHeader();
+	HSFixMsgBody *pBody = lpMsg->GetMsgBody();
+
+	pHeader->SetFieldValue(FIELD::SenderSubID, "ShengShaoDong");
+	pHeader->SetFieldValue(FIELD::TargetSubID, "G");
+	pHeader->SetFieldValue(FIELD::SenderLocationID, "CN");
+	pHeader->SetFieldValue(FIELD::LastMsgSeqNumProcessed, _ltoa(pSession->getExpectedTargetNum() - 1, szLastMsgSeqNumProcessed, 10 ) );
+
+	if ( strncmp(msgType, "0", 1 ) == 0)
+	{
+		//WriteLog(LOG_INFO, "[Worker::ToAdmin]:heartbeat message send...\n");
+	}
+	else if ( strncmp(msgType, "2", 1) == 0 )	//CME规定重发请求的序列号范围必须在2500以内,所以在此干预
+	{
+		long uBeginSeqNum = atol(pBody->GetFieldValue(FIELD::BeginSeqNo));
+		long uLastSeqNumProcessed = pSession->getExpectedTargetNum()-1;
+		if ( uLastSeqNumProcessed - uBeginSeqNum >= 2500 )
+		{
+			char szEndSeqNo[9] = {0};
+			pBody->SetFieldValue(FIELD::EndSeqNo, _ltoa(uBeginSeqNum+2499, szEndSeqNo, 10));
+		}
+		//WriteLog(LOG_INFO, "[Worker::ToAdmin]:resend request message send...\n");
+	}
+	else if (strncmp(msgType, "4", 1) == 0)
+	{
+		//WriteLog(LOG_INFO, "[Worker::ToAdmin]:sequense reset message send...\n");
+	}
+	else if(strncmp(msgType, "5", 1) == 0)
+	{
+		//WriteLog(LOG_INFO, "[Worker::ToAdmin]:logout message send...\n");
+	}
+	else if(strncmp(msgType, "A", 1) == 0)
+	{
+		//登录消息，可以在此处增加用户名和密码字段
+		//pBody->SetFieldValue(FIELD::RawData, "JOXKS");
+		pBody->SetFieldValue(FIELD::RawData, "4S5");
+		pBody->SetFieldValue(FIELD::RawDataLength, "3");
+		pBody->SetFieldValue(FIELD::ResetSeqNumFlag, "N");
+		pBody->SetFieldValue(FIELD::EncryptMethod, "0");
+		pBody->SetFieldValue(FIELD::ApplicationSystemName, "Hundsun UFOs");
+		pBody->SetFieldValue(FIELD::TradingSystemVersion, "V7.0");
+		pBody->SetFieldValue(FIELD::ApplicationSystemVendor, "Hundsun");
+		//pHeader->SetFieldValue(FIELD::SenderCompID, "N");
+		//WriteLog(LOG_INFO, "[Worker::ToAdmin]:logon message send...\n");
+	}
+}
+
+int FUNCTION_CALL_MODE Worker::ToApp( IMessage * lpMsg, const ISessionID * lpSessionID )
+{
+	//WriteLog(LOG_INFO, "[Worker::ToApp]: called.\n");
+	char szLastMsgSeqNumProcessed[9] = {0};
+	ISession* pSession = GetSessionByID((ISessionID *)lpSessionID);
+	HSFixHeader *pHeader = lpMsg->GetHeader();
+	HSFixMsgBody *body = lpMsg->GetMsgBody();
+	pHeader->SetFieldValue(FIELD::SenderSubID, "GZENG");
+	pHeader->SetFieldValue(FIELD::TargetSubID, "G");
+	pHeader->SetFieldValue(FIELD::SenderLocationID, "CN");
+	pHeader->SetFieldValue(FIELD::LastMsgSeqNumProcessed, _ltoa(pSession->getExpectedTargetNum() - 1, szLastMsgSeqNumProcessed, 10 ) );
+	return 0;
+}
+
+int FUNCTION_CALL_MODE Worker::FromAdmin( const IMessage * lpMsg , const ISessionID * lpSessionID )
+{
+	const char* msgType = lpMsg->GetMessageType();
+	HSFixHeader* pHeader = lpMsg->GetHeader();
+	//	strcpy(m_lastSeqNumReceived, pHeader->GetFieldValue(FIELD::MsgSeqNum));
+
+	if (strncmp(msgType, "A", 1) == 0)			//CME Globex发来的登陆确认消息
+	{
+		//WriteLog(LOG_INFO, "[Worker::FromAdmin]:received a Logon message\n");
+	} 
+	else if (strncmp(msgType, "5", 1) == 0)		//CME Globex发来的登出消息
+	{
+		//WriteLog(LOG_INFO, "[Worker::FromAdmin]:received a Logout message\n");
+	}
+	else if (strncmp(msgType, "0", 1) == 0)		//CME Globex发来的心跳消息
+	{
+		//WriteLog(LOG_INFO, "[Worker::FromAdmin]:received a heartbeat message\n");
+	}
+	else if (strncmp(msgType, "1", 1) == 0)		//CME Globex发来的心跳测试消息
+	{
+		//WriteLog(LOG_INFO, "[Worker::FromAdmin]:received a test request message\n");
+	}
+	else if (strncmp(msgType, "2", 1) == 0)		//CME Globex发来的重发请求消息
+	{
+		char cPossDupFlag = pHeader->GetFieldValueDefault(FIELD::PossDupFlag, "E")[0];
+		if (cPossDupFlag == 'Y')
+		{
+			//TODO:不回应重复的重发请求，暂无实现方法
+			return 0;
+		}
+		//WriteLog(LOG_INFO, "[Worker::FromAdmin]:received a resend request message\n");
+	}
+	else if (strncmp(msgType, "3", 1) == 0)		//CME Globex发来的会话层拒绝消息
+	{
+		//WriteLog(LOG_INFO, "[Worker::FromAdmin]:received a session level reject message\n");
+	}
+	else if (strncmp(msgType, "4", 1) == 0)		//CME Globex发来的Sequence Reset消息
+	{
+		//WriteLog(LOG_INFO, "[Worker::FromAdmin]:received a Sequence Reset message\n");
+	}
+	else if (strncmp(msgType, "j", 1) == 0)		//CME Globex发来的应用层拒绝消息
+	{
+		//WriteLog(LOG_INFO, "[Worker::FromAdmin]:received a business level reject message\n");
+	}
+	else
+	{
+		//WriteLog(LOG_DEBUG, "[Worker::FromAdmin]Unhandle message. Message type: %s\n", msgType);
+	}
+	return 0;
+}
+
+
+int FUNCTION_CALL_MODE Worker::FromApp( const IMessage *lpMsg , const ISessionID *lpSessionID )
+{
+	const char* msgType = lpMsg->GetMessageType();
+	HSFixHeader* pHeader = lpMsg->GetHeader();
+	//strcpy(m_lastSeqNumReceived, pHeader->GetFieldValue(FIELD::MsgSeqNum));
+
+	if(strncmp(msgType, "8", 1) == 0)  // Execution Report - Order Creation, Cancel or Modify
+	{
+		//WriteLog(LOG_INFO, "[Worker::FromApp]:Execution Report received\n");
+		ExecReport(lpMsg);
+	}
+	else if(strncmp(msgType, "9", 1) == 0)  // Order Cancel Reject (tag 35-MsgType=9)
+	{
+		//WriteLog(LOG_INFO, "[Worker::FromApp]:Order Cancel Reject received\n");
+		//CancelReject(lpMsg);
+	}
+	else if (strncmp(msgType, "b", 1) == 0)
+	{
+		//WriteLog(LOG_INFO, "[Worker::FromApp]:Quote Acknowledgment received\n");
+	}
+	else
+	{
+		//WriteLog(LOG_DEBUG, "[Worker::FromApp]Unhandle message. Message type: %c\n", msgType);
+	}
+	return 0;
+}
+
+
