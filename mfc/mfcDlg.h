@@ -93,5 +93,5 @@ public:
 	CDateTimeCtrl m_ExpireDate;
 	//订单最少成交量
 	CEdit m_MinQty;
-	afx_msg void OnBnClickedButtonClear();
+	afx_msg void OnBnClickedQuote();
 };

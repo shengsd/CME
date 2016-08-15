@@ -150,7 +150,7 @@ BEGIN_MESSAGE_MAP(CmfcDlg, CDialog)
 	ON_BN_CLICKED(IDC_BUTTON3, &CmfcDlg::OnBnClickedButton3)
 	ON_BN_CLICKED(IDC_BUTTON5, &CmfcDlg::OnBnClickedButton5)
 	ON_NOTIFY(NM_DBLCLK, IDC_LIST3, &CmfcDlg::OnNMDblclkListOrderInfo)
-	ON_BN_CLICKED(IDC_BUTTON_CLEAR, &CmfcDlg::OnBnClickedButtonClear)
+	ON_BN_CLICKED(IDC_BUTTON_CLEAR, &CmfcDlg::OnBnClickedQuote)
 END_MESSAGE_MAP()
 
 /*
@@ -515,8 +515,6 @@ void CmfcDlg::OnBnClickedEnter()
 	}
 
 	g_worker.EnterOrder(order);
-	
-	return ;
 }
 
 
@@ -604,8 +602,56 @@ void CmfcDlg::OnNMDblclkListOrderInfo(NMHDR *pNMHDR, LRESULT *pResult)
 	};
 }
 
-
-void CmfcDlg::OnBnClickedButtonClear()
+//询价
+void CmfcDlg::OnBnClickedQuote()
 {
 	// TODO: 在此添加控件通知处理程序代码
+	ORDER order = {0};
+
+	CString csSecurityDesc;
+	m_SecurityDesc.GetWindowText(csSecurityDesc);
+	if (csSecurityDesc.IsEmpty())
+	{
+		MessageBox(_T("SecurityDesc"), _T("Warning"));
+		return;
+	}
+	_tcscpy_s(order.SecurityDesc, _countof(order.SecurityDesc), csSecurityDesc);
+
+	CString csSymbol;
+	m_Symbol.GetWindowText(csSymbol);
+	if (csSymbol.IsEmpty())
+	{
+		MessageBox(_T("Symbol"), _T("Warning"));
+		return;
+	}
+	_tcscpy_s(order.Symbol, _countof(order.Symbol), csSymbol);
+
+	CString csSecurityType;
+	m_SecurityType.GetWindowText(csSecurityType);
+	if (csSecurityType.IsEmpty())
+	{
+		MessageBox(_T("SecurityType"), _T("Warning"));
+		return;
+	}
+	_tcscpy_s(order.SecurityType, _countof(order.SecurityType), csSecurityType);
+
+	CString csSide;
+	m_Side.GetWindowText(csSide);
+	if (csSide.IsEmpty())
+	{
+		MessageBox(_T("Side"), _T("Warning"));
+		return;
+	}
+	order.Side[0] = csSide.GetAt(0);
+
+	CString csOrderQty;
+	m_OrderQty.GetWindowText(csOrderQty);
+	if (csOrderQty.IsEmpty())
+	{
+		MessageBox(_T("OrderQty"), _T("Warning"));
+		return;
+	}
+	_tcscpy_s(order.OrderQty, _countof(order.OrderQty), csOrderQty);
+
+	g_worker.Quote(order);
 }

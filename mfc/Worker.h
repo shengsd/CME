@@ -46,7 +46,7 @@ typedef struct tagORDER
 	TCHAR	MaxShow[10];	//Display quantity of an order to be shown in the order book at any given time.
 	TCHAR	ExpireDate[9];	//YYYYMMDD Required only if tag 59-TimeInForce=Good Till Date (GTD).
 	//TCHAR	CtiCode;		//'1'
-	TCHAR OrdStatus[2]; //订单的实际状态. -=作废 P=Pending正在 	0=New已报 	4=Cancelled已撤	5=Modified已改 1=Partial Filled部成 2=Complete Filled C=Expired 8=Rejected H=Trade Cancel U=Undefined
+	TCHAR OrdStatus[2]; //订单的实际状态. -=作废 P=Pending正在 	0=New已报 	4=Cancelled已撤	5=Modified已改 1=Partial Filled部成 2=Complete Filled已成 C=Expired 8=Rejected H=Trade Cancel U=Undefined A=CAncel Reject L=ALter Reject
 	TCHAR ErrorInfo[64];//错误信息，自定义字段
 } ORDER;
 
@@ -136,6 +136,7 @@ typedef struct tagInstrument
 	TCHAR Symbol[24];					//Instrument Name or Symbol. iLink中用tag 107-SecurityDesc表示
 	TCHAR Asset[8];						//The underlying asset code also known as Product Code. iLink中用tag1151-SecurityGroup表示
 	TCHAR SecurityExchange[8];			//交易类别
+	TCHAR SecurityType[8];			//FUT = Future or Future Spread	OOF = Options on Futures or Options on Futures Spread
 	TCHAR CFICode[8];					//Indicate the type of security.
 	int  ApplID;						//Indicates the channel ID as defined in the XML configuration file
 	double DisplayFactor;				//prices and ticks 的显示价格需要乘以此数
@@ -200,6 +201,9 @@ public://交易功能
 	//关闭交易
 	void StopTrade();
 
+	///查询订单状态，开启交易后第一件事
+	void OrderStatus();
+
 	///下单，回写(修改界面)
 	/**
 	*@param  ORDER& order 下单信息,可能不充分
@@ -223,6 +227,15 @@ public://交易功能
 	*@param  const IMessage* pMsg FIX消息
 	*/
 	void ExecReport(const IMessage* pMsg);
+
+	//改废、撤废
+	void CancelReject(const IMessage* pMsg);
+
+	///询价
+	int Quote(ORDER& order);
+
+	///询价反馈
+	void QuoteAck(const IMessage* pMsg);
 	
 	///订单查询反馈转换成订单
 	/**

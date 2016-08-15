@@ -46,13 +46,14 @@ void Worker::WriteLog(int nLevel, const TCHAR *szFormat, ...)
 
 BOOL Worker::StartTrade()
 {
-	char cfgPath[128];
-	GetCurrentDirectory(128, cfgPath);
-	sprintf_s(cfgPath, "%s\\FIX_CME.ini", cfgPath);
+	TCHAR cfgPath[MAX_PATH];
+	GetModuleFileName(NULL, cfgPath, MAX_PATH);
+	strcpy(strrchr(cfgPath, '\\'), "\\FIX_CME.ini");
+
+	WriteLog(LOG_INFO, _T("%s"), cfgPath);
 	//启动HSfixEngine
 	if(EngnInit((char*)cfgPath, this) != 0)
 	{
-		//sprintf_s(m_szLastErrorInfo, sizeof(m_szLastErrorInfo), "%s", cfgPath);
 		WriteLog(LOG_ERROR, _T("%s"), cfgPath);
 		return FALSE;
 	}
@@ -62,6 +63,9 @@ BOOL Worker::StartTrade()
 	if ( dwWaitResult == WAIT_OBJECT_0 )	//登录成功
 	{
 		WriteLog(LOG_INFO, _T("[Trade]: Start"));
+		//登录后发起历史委托查询
+		g_worker.OrderStatus();
+
 		return TRUE;
 	}
 	else if ( dwWaitResult == WAIT_TIMEOUT )
@@ -80,6 +84,44 @@ void Worker::StopTrade()
 	WriteLog(LOG_INFO, _T("[Trade]: Stop"));
 }
 
+void Worker::OrderStatus()
+{
+	IMessage* pMsg = CreateMessage("FIX.4.2", "AF");
+	HSFixMsgBody* pBody = pMsg->GetMsgBody();
+
+	//MassStatusReqID	Unique identifier for Order Mass Status Request as assigned by the client system.
+	//保证唯一性即可，设为YYYYMMDD-HH:MM:SS.sss
+	SYSTEMTIME st;
+	GetSystemTime(&st);
+	char szTimeStamp[21] = {0};
+	sprintf_s(szTimeStamp, "%04u%02u%02u-%02u:%02u:%02u:%03u", st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
+	pBody->SetFieldValue(FIELD::MassStatusReqID, szTimeStamp);
+
+	//MassStatusReqType	1=Instrument	3=Instrument Group	7=All Orders		100=Market Segment 
+	//查询全部订单的状态
+	pBody->SetFieldValue(FIELD::MassStatusReqType, "7");
+
+	//TransactTime	UTC format YYYYMMDD-HH:MM:SS.sss
+	pBody->SetFieldValue(FIELD::TransactTime, szTimeStamp);
+
+	//ManualOrderIndicator
+	pBody->SetFieldValue(FIELD::ManualOrderIndicator, "Y");
+
+	//发送消息
+	if(m_pTradeSession)
+	{
+		int iRet = SendMessageByID( pMsg, m_pTradeSession );
+		if(iRet != 0)
+		{
+			AfxMessageBox(_T("Send Fix Message Fail"));
+		}
+		DestroyMessage( pMsg );
+	}
+	else
+	{
+		AfxMessageBox(_T("Fix Session not initialized"));
+	}
+}
 
 int Worker::EnterOrder(ORDER& order)
 {
@@ -363,7 +405,6 @@ int Worker::ReplaceOrder(ORDER& order)
 
 }
 
-
 void Worker::ExecReport(const IMessage* pMsg)
 {
 	ORDER order = {0};
@@ -388,12 +429,22 @@ void Worker::ExecReport(const IMessage* pMsg)
 	strcpy_s(excReport.ExpireDate, pBody->GetFieldValueDefault(FIELD::ExpireDate, "") );
 
 	//Order Status Request Acknowledgment
-	//查询订单反馈
+	//订单状态反馈
 	if ( 'I' == excReport.ExecType[0] )
 	{
+		//If the Mass Order Status Request is accepted, but no orders are found
+		if ( 'U' == excReport.OrdStatus[0] )
+		{
+			WriteLog(LOG_INFO, _T("%s"), pBody->GetFieldValueDefault(FIELD::Text, ""));
+			return ;
+		}
+		//如果要等到全部挂单信息都收到	可以用LastRptRequested字段， Y表示最后一条
+
+		//提取订单信息
 		ExtractOrderFromExcReport(order, excReport);
+		
+		//保存挂单信息
 		AddOrder(order);
-		return ;
 	}
 
 	//其它都是订单反馈，成交回报
@@ -433,12 +484,119 @@ void Worker::ExecReport(const IMessage* pMsg)
 	default:
 		break;
 	}
-
 }
 
+void Worker::CancelReject(const IMessage* pMsg)
+{
+	ORDER order = {0};
+	EXCREPORT excReport = {0};
+	HSFixMsgBody* pBody = pMsg->GetMsgBody();
+
+	//本地单号
+	strcpy_s(excReport.ClOrdID, pBody->GetFieldValueDefault(FIELD::ClOrdID, "") );
+
+	//按本地单号找订单
+	if ( FALSE == GetOrderByClOrderID(excReport.ClOrdID, order) )
+	{
+		//找不到订单报错，结束
+		WriteLog(LOG_ERROR, _T("Can't find the order, ClOrdID:%s"), excReport.ClOrdID);
+		return ;
+	}
+
+	char cCancelRejResponseTo = pBody->GetFieldValueDefault(FIELD::CxlRejResponseTo, "E")[0];
+	if (cCancelRejResponseTo == '1')
+	{
+		strcpy_s(order.OrdStatus, "A");
+	}
+	else if (cCancelRejResponseTo == '2')
+	{
+		strcpy_s(order.OrdStatus, "L");
+	}
+
+	UpdateOrder(order);
+
+	WriteLog(LOG_INFO, "[Worker::CancelReject]: ClOrdID=%s, Text=%s", order.ClOrdID, pBody->GetFieldValueDefault(FIELD::Text, ""));
+}
+
+int Worker::Quote(ORDER& order)
+{
+	strcpy_s(order.MsgType, "R");
+
+	IMessage* pMsg = CreateMessage("FIX.4.2", "R");
+	HSFixMsgBody* pBody = pMsg->GetMsgBody();
+
+	//TODO:暂时不清楚要放什么字段。Unique account identifier. 
+	pBody->SetFieldValue(FIELD::Account, _T("Hundsun UFOs7"));
+
+	SYSTEMTIME st;
+	GetSystemTime(&st);
+	char szQuoteReqID[21] = {0};
+	_stprintf_s(szQuoteReqID, _countof(szQuoteReqID), _T("%02d%02d%02d%03d"), st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
+	//本地单号，在这里用HHMMSSsss表示
+	pBody->SetFieldValue(FIELD::QuoteReqID, szQuoteReqID);
+
+	//Must=1; only one request supported per message.
+	pBody->SetFieldValue(FIELD::NoRelatedSym, "1");
+
+	IGroup* pGroup =  pBody->SetGroup(FIELD::NoRelatedSym, FIELD::Symbol);
+	if (pGroup)
+	{
+		IRecord* pRecord = pGroup->AddRecord();
+		if (pRecord)
+		{
+			pRecord->SetFieldValue(FIELD::Symbol, order.Symbol);
+			pRecord->SetFieldValue(FIELD::OrderQty, order.OrderQty);
+			pRecord->SetFieldValue(FIELD::Side, order.Side);
+			//TransactTime (UTC format YYYYMMDD-HH:MM:SS.sss)
+			TCHAR szTransactTime[64];
+			_stprintf_s(szTransactTime, _countof(szTransactTime), _T("%d%02d%02d-%02d:%02d:%02d.%03d"), st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
+			pRecord->SetFieldValue(FIELD::TransactTime, szTransactTime); 
+			pRecord->SetFieldValue(FIELD::SecurityDesc, order.SecurityDesc);
+			pRecord->SetFieldValue(FIELD::SecurityType, order.SecurityType);
+			//When tag 54-Side = 1 (Buy) or 2 (Sell), this tag must be present and = 1 for tradable.
+			pRecord->SetFieldValue(FIELD::QuoteType, "1");
+		}
+	}
+
+
+	//ManualOrderIndicator Y=manual N=automated
+	pBody->SetFieldValue(FIELD::ManualOrderIndicator, _T("Y")); 
+
+	//发送消息
+	if(m_pTradeSession)
+	{
+		int iRet = SendMessageByID( pMsg, m_pTradeSession );
+		if(iRet != 0)
+		{
+			//_tcscpy_s( order.ErrorInfo, _countof(order.ErrorInfo), _T("Send Fix Message Fail") );
+			AfxMessageBox(_T("Send Fix Message Fail"));
+			return STATUS_FAIL;
+		}
+		DestroyMessage( pMsg );
+	}
+	else
+	{
+		//_tcscpy_s( order.ErrorInfo, _countof(order.ErrorInfo), _T("Fix Session not initialized") );
+		AfxMessageBox(_T("Fix Session not initialized"));
+		return STATUS_FAIL;
+	}
+
+	WriteLog(LOG_INFO, "[Worker::Quote]: Quote Sent");
+
+	return STATUS_SUCCESS;
+}
+
+void Worker::QuoteAck(const IMessage* pMsg)
+{
+	//HSFixMsgBody* pBody = pMsg->GetMsgBody();
+}
 
 void Worker::AddOrder(ORDER& order)
 {
+	//订单以主场单号为主键，必须确保有主场单号
+	//if ( 0 == strcmp(order.OrderID, "") )
+		//return ;
+
 	//保存
 	EnterCriticalSection(&m_csOrder);
 	m_mapClOrderIDToOrder[order.ClOrdID] = order;
@@ -569,6 +727,12 @@ void Worker::UpdateOrder(ORDER& order)
 		break;
 	case 'H'://Trade Cancel
 		m_pDlg->m_lvOrderInfoList.SetItemText(0, OrderInfo_Column_Status, _T("Trade Cancelled"));
+		break;
+	case 'A'://Cancel Reject
+		m_pDlg->m_lvOrderInfoList.SetItemText(0, OrderInfo_Column_Status, _T("Cancel Reject"));
+		break;
+	case 'L'://Alter Reject
+		m_pDlg->m_lvOrderInfoList.SetItemText(0, OrderInfo_Column_Status, _T("Alter Reject"));
 		break;
 	default: 
 		WriteLog(LOG_ERROR, _T("[UpdateOrderInfoList]: OrdStatus=%s"), order.OrdStatus);
@@ -710,15 +874,14 @@ void Worker::OnUpdate(MDPFieldMap* pFieldMap)
 	{
 		m_fLog << "[OnUpdate]:Modify Instrument, Symbol:" << inst.Symbol << std::endl;
 	}
-	/************************************新增合约****************************************/
+	/**************************************************新增合约**************************************************/
 	//先获取以下关键字段
-	m_fLog << "[OnUpdate]: security id:" << inst.SecurityID << ", action: " << action << std::endl;
 
 	if (pField = pFieldMap->getField(FIELD::SecurityExchange))//外部交易所
 	{
 		pField->getArray(0, inst.SecurityExchange, 0, pField->length());
 	}
-
+	
 	if (pField = pFieldMap->getField(FIELD::Asset))//外部商品
 	{
 		pField->getArray(0, inst.Asset, 0, pField->length());
@@ -739,9 +902,17 @@ void Worker::OnUpdate(MDPFieldMap* pFieldMap)
 		inst.ApplID = (int)pField->getInt();
 	}
 
-	if (pField = pFieldMap->getField(FIELD::SecurityGroup))//交易中用到
+	//交易中用到
+	//SecurityDesc<=>Symbol
+	//Symbol<=>SecurityGroup
+	if (pField = pFieldMap->getField(FIELD::SecurityGroup))
 	{
-		pField->getArray(0, inst.SecurityGroup, 0, pField->length(0));
+		pField->getArray(0, inst.SecurityGroup, 0, pField->length());
+	}
+	//SecurityType
+	if (pField = pFieldMap->getField(FIELD::SecurityType))
+	{
+		pField->getArray(0, inst.SecurityType, 0, pField->length());
 	}
 
 	nCount = pFieldMap->getFieldMapNumInGroup(FIELD::NoMdFeedTypes);
@@ -779,6 +950,8 @@ void Worker::OnUpdate(MDPFieldMap* pFieldMap)
 		}
 	}
 
+	m_fLog << "[OnUpdate]: SecurityID=" << inst.SecurityID << ", Symbol=" << inst.Symbol << ", SecurityExchange=" << inst.SecurityExchange
+				<< ", Asset=" << inst.Asset << ", SecurityType=" << inst.SecurityType << ", SecurityTradingStatus=" << inst.SecurityTradingStatus << ", Action=" << action << ", " << std::endl;
 	m_mapSecurityID2Inst[inst.SecurityID] = inst;
 }
 
@@ -1982,7 +2155,42 @@ void Worker::PushQuote( const QuoteItem* qi )
 	}
 
 	//市场状态
-	s.Format("%d", qi->cMarketStatus);
+	switch (qi->cMarketStatus)
+	{
+	case 21:
+		s.Format("%s", "Pre Open");
+		break;
+	case 15:
+		s.Format("%s", "New Price Indication");
+		break;
+	case 17:
+		s.Format("%s", "Ready to trade (start of session)");
+		break;
+	case 2:
+		s.Format("%s", "Trading halt");
+		break;
+	case 18:
+		s.Format("%s", "Not available for trading");
+		break;
+	case 4:
+		s.Format("%s", "Close");
+		break;
+	case 26:
+		s.Format("%s", "Post Close");
+		break;
+	case 20:
+		s.Format("%s", "Unknown or Invalid");
+		break;
+	case 24:
+		s.Format("%s", "Pre-Cross");
+		break;
+	case 25:
+		s.Format("%s", "Cross");
+		break;
+	default:
+		s.Format("%s", "-");
+		break;
+	}
 	lvQuote.SetItemText(nIndex, 1, s);
 
 	s.Format("%lf", qi->last);
@@ -2365,17 +2573,18 @@ int FUNCTION_CALL_MODE Worker::FromApp( const IMessage *lpMsg , const ISessionID
 
 	if(strncmp(msgType, "8", 1) == 0)  // Execution Report - Order Creation, Cancel or Modify
 	{
-		//WriteLog(LOG_INFO, "[Worker::FromApp]:Execution Report received\n");
+		WriteLog(LOG_INFO, "[Worker::FromApp]:Execution Report received\n");
 		ExecReport(lpMsg);
 	}
 	else if(strncmp(msgType, "9", 1) == 0)  // Order Cancel Reject (tag 35-MsgType=9)
 	{
 		//WriteLog(LOG_INFO, "[Worker::FromApp]:Order Cancel Reject received\n");
-		//CancelReject(lpMsg);
+		CancelReject(lpMsg);
 	}
 	else if (strncmp(msgType, "b", 1) == 0)
 	{
-		//WriteLog(LOG_INFO, "[Worker::FromApp]:Quote Acknowledgment received\n");
+		WriteLog(LOG_INFO, "[Worker::FromApp]:Quote Acknowledgment received\n");
+		QuoteAck(lpMsg);
 	}
 	else
 	{
