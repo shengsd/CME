@@ -79,9 +79,10 @@ typedef struct tagEXCREPORT
 	TCHAR	MaxShow[10];	//Display quantity of an order to be shown in the order book at any given time.
 	TCHAR	StopPx[21];		//Required for stop and stop-limit orders.
 	TCHAR	CorrelationClOrdID[21];//订单链最开始的本地单号，改单，撤单对应的下单的本地单号|This tag should contain the same value as the tag 11-ClOrdID of the original New Order (tag 35-MsgType-D) message and is used to correlate iLink messages associated with a single order chain.
+	TCHAR Text[151];
 }EXCREPORT;
 
-typedef struct tagQuoteItem
+typedef struct tagMktDtItem
 {
 	int  securityID;		//CME合约唯一ID,主键
 	//	char szExchangeType[12];		//交易类别
@@ -106,7 +107,7 @@ typedef struct tagQuoteItem
 	long tolVolume;					//总成交
 	int cMarketStatus;				//合约市场状态
 	int nTimeStamp;					//时间戳（本地时间）
-}QuoteItem;
+}MktDtItem;
 
 //合并后的买卖盘（）
 typedef struct
@@ -147,8 +148,6 @@ typedef struct tagInstrument
 }Instrument;
 
 
-
-
 class Worker: public Application, public IApplication
 {
 public:
@@ -160,7 +159,7 @@ public:
 	{
 		m_pDlg = pDlg;
 	}
-	
+
 	// 主对话框 直接操作图形界面
 	CmfcDlg* m_pDlg;
 	//HWND m_hWindDlg;
@@ -169,15 +168,14 @@ public:
 	void __cdecl WriteLog(int nLevel, const TCHAR *szFormat, ...);
 
 	//行情引擎开关
-	UINT startQuote();
-	UINT stopQuote();
+	UINT startMktDt();
+	UINT stopMktDt();
 
 	//用于MDP3.0行情调试
 	std::ofstream m_fLog;
-	
 
-public://交易功能
-
+	//交易功能
+public:
 	//HS FIXENGINE INTERFACE
 	virtual void FUNCTION_CALL_MODE onEvent( const ISessionID * lpSessionID, int iEventID );
 
@@ -197,12 +195,12 @@ public://交易功能
 
 	//开启交易
 	BOOL StartTrade();
-	
+
 	//关闭交易
 	void StopTrade();
 
 	///查询订单状态，开启交易后第一件事
-	void OrderStatus();
+	void QueryOrderStatus();
 
 	///下单，回写(修改界面)
 	/**
@@ -236,7 +234,7 @@ public://交易功能
 
 	///询价反馈
 	void QuoteAck(const IMessage* pMsg);
-	
+
 	///订单查询反馈转换成订单
 	/**
 	*@param  order 订单信息
@@ -250,13 +248,11 @@ public://交易功能
 	*/
 	void AddOrder(ORDER& order);
 
-	
 	///更新订单信息
 	/**
 	*@param ORDER& order 订单信息
 	*/
 	void UpdateOrder(ORDER& order);
-	
 
 	///订单查询
 	/**
@@ -280,12 +276,12 @@ private:
 
 	//TCHAR m_szLastErrorInfo[1024];
 
-	CRITICAL_SECTION m_csOrder;
+	CRITICAL_SECTION m_OrderLock;
 
-	//ProductManager
+	//合约功能
 public:
 	//根据SecurityID获取Instrument
-	//返回 0 成功 -1 失败
+	//返回 0 成功 1 失败
 	int GetInstrumentBySecurityID(const int securityID, Instrument& inst);
 
 	//通过行情接收合约
@@ -296,7 +292,7 @@ private:
 
 	MapIntToInstrument m_mapSecurityID2Inst;//外部合约 -> Instrument
 
-	//QuoteManager
+	//行情功能
 public:
 	//行情回调函数
 	void onMarketData(MDPFieldMap* pMDPFieldMap, const int templateID);
@@ -331,23 +327,24 @@ public:
 	void updateOrderBook(int SecurityID);
 
 private:
-	typedef std::map<int, QuoteItem*> MapIntToQuote;
+	typedef std::map<int, MktDtItem*> MapIntToMktDtItemPtr;
 
 	typedef std::set<int> SetInt;
 
-	typedef std::map<int, SetInt> MapIntToSet;
+	typedef std::map<int, SetInt> MapIntToSetInt;
 
-	MapIntToQuote m_mapSecurityID2Quote;//外部合约 -> 行情信息
+	MapIntToMktDtItemPtr m_mapSecurityIDToMktDt;//外部合约 -> 行情信息
 
-	MapIntToSet m_mapApplID2SecurityIDs;//ChannelID -> 包含的外部合约
+	MapIntToSetInt m_mapApplID2SecurityIDs;//ChannelID -> 包含的外部合约
 
 	//推送行情消息
-	void PushQuote(const QuoteItem* qi);	
+	void PushMktDtItem(const MktDtItem* pItem);
 
 	//重置合约行情信息
-	void EmptyQuote(QuoteItem* qi);
+	void EmptyMktDtItem(MktDtItem* pItem);
+
 	//merge actual book and implied book
-	void MergeBook(ConsolidatedBook* conBook, const QuoteItem* qi);
+	void MergeBook(ConsolidatedBook* pBook, const MktDtItem* pItem);
 
 	//把val插入lvs数组的pos位置中，并丢弃最后一个元素
 	//对于错误的pos，不做任何动作

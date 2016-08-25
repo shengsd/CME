@@ -72,7 +72,8 @@ namespace MDP
 		{
 			//Locker l(m_mutex);
 			EnterCriticalSection(&m_mutex);
-			m_fLog << "[PushPacket]: size:" << m_packetQueue.size() << std::endl;
+			//测试队列积压
+			//m_fLog << "[PushPacket]: size:" << m_packetQueue.size() << std::endl;
 			m_packetQueue.push(packet);
 			SetEvent(m_hEventData);
 			LeaveCriticalSection(&m_mutex);
@@ -87,7 +88,8 @@ namespace MDP
 		{
 			//Locker l(m_mutex);
 			EnterCriticalSection(&m_mutex);
-			m_fLog << "[FrontPacket]: size:" << m_packetQueue.size() << std::endl;
+			//测试队列积压
+			//m_fLog << "[FrontPacket]: size:" << m_packetQueue.size() << std::endl;
 			if (!m_packetQueue.empty())
 			{
 				packet = m_packetQueue.front();
@@ -204,9 +206,9 @@ namespace MDP
 		//启动处理数据线程
 		static THREAD_PROC processorThread( void* p );
 
-		//引擎日志
-		std::ofstream m_fLog;
-		//有效行情解析文件
+		//引擎日志文件
+		//std::ofstream m_fLog;
+		//有效行情解析日志文件
 		std::ofstream m_fDecoding;
 		
 		//处理数据线程ID

@@ -6,14 +6,14 @@ Worker::Worker(void)
 {
 	m_pTradeSession = NULL;
 	m_hEventReadyToTrade = CreateEvent(NULL, TRUE, FALSE, NULL);
-	InitializeCriticalSection(&m_csOrder);
+	InitializeCriticalSection(&m_OrderLock);
 }
 
 Worker::~Worker(void)
 {
 	if (m_hEventReadyToTrade)
 		CloseHandle(m_hEventReadyToTrade);
-	DeleteCriticalSection(&m_csOrder);
+	DeleteCriticalSection(&m_OrderLock);
 }
 
 void Worker::WriteLog(int nLevel, const TCHAR *szFormat, ...)
@@ -64,7 +64,7 @@ BOOL Worker::StartTrade()
 	{
 		WriteLog(LOG_INFO, _T("[Trade]: Start"));
 		//登录后发起历史委托查询
-		g_worker.OrderStatus();
+		g_worker.QueryOrderStatus();
 
 		return TRUE;
 	}
@@ -84,7 +84,7 @@ void Worker::StopTrade()
 	WriteLog(LOG_INFO, _T("[Trade]: Stop"));
 }
 
-void Worker::OrderStatus()
+void Worker::QueryOrderStatus()
 {
 	IMessage* pMsg = CreateMessage("FIX.4.2", "AF");
 	HSFixMsgBody* pBody = pMsg->GetMsgBody();
@@ -94,7 +94,7 @@ void Worker::OrderStatus()
 	SYSTEMTIME st;
 	GetSystemTime(&st);
 	char szTimeStamp[21] = {0};
-	sprintf_s(szTimeStamp, "%04u%02u%02u-%02u:%02u:%02u:%03u", st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
+	sprintf(szTimeStamp, "%04u%02u%02u-%02u:%02u:%02u:%03u", st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
 	pBody->SetFieldValue(FIELD::MassStatusReqID, szTimeStamp);
 
 	//MassStatusReqType	1=Instrument	3=Instrument Group	7=All Orders		100=Market Segment 
@@ -128,13 +128,13 @@ int Worker::EnterOrder(ORDER& order)
 	//TODO:
 	//ORDER中可能信息不足，需要从合约列表中获取完整信息
 
-	strcpy_s(order.MsgType, "D");
+	strcpy(order.MsgType, "D");
 
 	IMessage* pMsg = CreateMessage("FIX.4.2", "D");
 	HSFixMsgBody* pBody = pMsg->GetMsgBody();
 
 	//TODO:暂时不清楚要放什么字段。Unique account identifier. 
-	pBody->SetFieldValue(FIELD::Account, _T("Hundsun UFOs7"));
+	pBody->SetFieldValue(FIELD::Account, _T("Shengsd"));
 
 	SYSTEMTIME st;
 	GetSystemTime(&st);
@@ -142,26 +142,18 @@ int Worker::EnterOrder(ORDER& order)
 	//本地单号，在这里用HHMMSSsss表示
 	pBody->SetFieldValue(FIELD::ClOrdID, order.ClOrdID);
 
+	strcpy(order.CorrelationClOrdID, order.ClOrdID);
 	//原始本地单号
 	pBody->SetFieldValue(FIELD::CorrelationClOrdID, order.ClOrdID);
 
 	//Order submitted for automated matching on CME Globex.
 	pBody->SetFieldValue(FIELD::HandlInst, "1");
 
-	//CME合约主键
-	pBody->SetFieldValue(FIELD::SecurityDesc, order.SecurityDesc);
-	pBody->SetFieldValue(FIELD::Symbol, order.Symbol);
-	pBody->SetFieldValue(FIELD::SecurityType, order.SecurityType);
-
-	//委托数量
+	//下单数量
 	pBody->SetFieldValue(FIELD::OrderQty, order.OrderQty);
 
-	//买卖方向
-	pBody->SetFieldValue(FIELD::Side, order.Side);
-
-	//委托类型
+	//下单类型
 	pBody->SetFieldValue(FIELD::OrdType, order.OrdType);
-
 	switch (order.OrdType[0])
 	{
 	case _T('1')://Market order (with protection) 
@@ -181,8 +173,14 @@ int Worker::EnterOrder(ORDER& order)
 	default:
 		break;
 	}
-	pBody->SetFieldValue(FIELD::OrderQty, order.OrderQty);
 
+	//买卖方向
+	pBody->SetFieldValue(FIELD::Side, order.Side);
+
+	//Product Code 行情接口里是Asset
+	pBody->SetFieldValue(FIELD::Symbol, order.Symbol);
+
+	//订单有效期
 	pBody->SetFieldValue(FIELD::TimeInForce, order.TimeInForce);
 	switch (order.TimeInForce[0])
 	{
@@ -200,14 +198,31 @@ int Worker::EnterOrder(ORDER& order)
 		break;
 	}
 
-	//ManualOrderIndicator Y=manual N=automated
+	//下单时间 (UTC format YYYYMMDD-HH:MM:SS.sss)
+	TCHAR szTransactTime[64];
+	_stprintf_s(szTransactTime, _countof(szTransactTime), _T("%d%02d%02d-%02d:%02d:%02d.%03d"), st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
+	pBody->SetFieldValue(FIELD::TransactTime, szTransactTime); 
+
+	//手工下单 Y=manual N=automated
 	pBody->SetFieldValue(FIELD::ManualOrderIndicator, _T("Y")); 
+
+	//CME合约主键，行情接口里是Symbol
+	pBody->SetFieldValue(FIELD::SecurityDesc, order.SecurityDesc);
+
+	//期货还是期权 FUT=Future OPT=Option
+	pBody->SetFieldValue(FIELD::SecurityType, order.SecurityType);
+	
+	//The type of business conducted. 0=Customer 1=Firm 
+	pBody->SetFieldValue(FIELD::CustomerOrFirm, _T("1"));
+
+	//MaxShow 冰山单里的最大显示数量，这里
+	if (atoi(order.MaxShow) != 0)
+	{
+		pBody->SetFieldValue(FIELD::MaxShow, order.MaxShow);
+	}
 
 	//CtiCode TODO: 不是很清楚有什么用
 	pBody->SetFieldValue(FIELD::CtiCode, _T("1")); 
-
-	//The type of business conducted. 0=Customer 1=Firm 
-	pBody->SetFieldValue(FIELD::CustomerOrFirm, _T("1"));
 
 	//发送消息
 	if(m_pTradeSession)
@@ -238,13 +253,13 @@ int Worker::EnterOrder(ORDER& order)
 int Worker::CancelOrder(ORDER& order)
 {
 	//发撤单消息
-	strcpy_s(order.MsgType, "F");
+	strcpy(order.MsgType, "F");
 
 	IMessage* pMsg = CreateMessage("FIX.4.2", "F");
 	HSFixMsgBody* pBody = pMsg->GetMsgBody();
 
 	//Unique account identifier. TODO:暂时不清楚
-	pBody->SetFieldValue(FIELD::Account, _T("Hundsun UFOs7"));
+	pBody->SetFieldValue(FIELD::Account, _T("Shengsd"));
 
 	SYSTEMTIME st;
 	GetSystemTime(&st);
@@ -256,7 +271,7 @@ int Worker::CancelOrder(ORDER& order)
 	pBody->SetFieldValue(FIELD::OrderID, order.OrderID);
 
 	//上次本地单号
-	strcpy_s(order.OrigClOrdID, order.ClOrdID);
+	strcpy(order.OrigClOrdID, order.ClOrdID);
 	pBody->SetFieldValue(FIELD::OrigClOrdID, order.OrigClOrdID);
 
 	//买卖方向
@@ -277,7 +292,7 @@ int Worker::CancelOrder(ORDER& order)
 	pBody->SetFieldValue(FIELD::SecurityDesc, order.SecurityDesc);
 
 	//SecurityType
-	pBody->SetFieldValue(FIELD::SecurityDesc, order.SecurityType);
+	pBody->SetFieldValue(FIELD::SecurityType, order.SecurityType);
 
 	//原始本地单号
 	pBody->SetFieldValue(FIELD::CorrelationClOrdID, order.CorrelationClOrdID);
@@ -317,13 +332,13 @@ int Worker::CancelOrder(ORDER& order)
 int Worker::ReplaceOrder(ORDER& order)
 {
 	//发改单消息
-	strcpy_s(order.MsgType, "G");
+	strcpy(order.MsgType, "G");
 
 	IMessage* pMsg = CreateMessage("FIX.4.2", "G");
 	HSFixMsgBody* pBody = pMsg->GetMsgBody();
 
 	//Unique account identifier. TODO:暂时不清楚
-	pBody->SetFieldValue(FIELD::Account, _T("Hundsun UFOs7"));
+	pBody->SetFieldValue(FIELD::Account, _T("Shengsd"));
 
 	SYSTEMTIME st;
 	GetSystemTime(&st);
@@ -346,7 +361,7 @@ int Worker::ReplaceOrder(ORDER& order)
 	pBody->SetFieldValue(FIELD::OrdType, order.OrdType);
 
 	//上次本地单号
-	strcpy_s(order.OrigClOrdID, order.ClOrdID);
+	strcpy(order.OrigClOrdID, order.ClOrdID);
 	pBody->SetFieldValue(FIELD::OrigClOrdID, order.OrigClOrdID);
 
 	//买卖方向
@@ -411,22 +426,25 @@ void Worker::ExecReport(const IMessage* pMsg)
 	EXCREPORT excReport = {0};
 	HSFixMsgBody* pBody = pMsg->GetMsgBody();
 
-	strcpy_s(excReport.ExecType, pBody->GetFieldValueDefault(FIELD::ExecType, "") );//回报类型
-	strcpy_s(excReport.OrdStatus, pBody->GetFieldValueDefault(FIELD::OrdStatus, "") );//订单状态
-	strcpy_s(excReport.ClOrdID, pBody->GetFieldValueDefault(FIELD::ClOrdID, "") );
-	strcpy_s(excReport.OrigClOrdID, pBody->GetFieldValueDefault(FIELD::OrigClOrdID, "") );
-	strcpy_s(excReport.CorrelationClOrdID, pBody->GetFieldValueDefault(FIELD::CorrelationClOrdID, "") );
-	strcpy_s(excReport.OrderID, pBody->GetFieldValueDefault(FIELD::OrderID, "") );
-	strcpy_s(excReport.SecurityDesc, pBody->GetFieldValueDefault(FIELD::SecurityDesc, "") );
-	strcpy_s(excReport.Side, pBody->GetFieldValueDefault(FIELD::Side, "") );
-	strcpy_s(excReport.OrderQty, pBody->GetFieldValueDefault(FIELD::OrderQty, "") );
-	strcpy_s(excReport.MinQty, pBody->GetFieldValueDefault(FIELD::MinQty, "") );
-	strcpy_s(excReport.MaxShow, pBody->GetFieldValueDefault(FIELD::MaxShow, "") );
-	strcpy_s(excReport.OrdType, pBody->GetFieldValueDefault(FIELD::OrdType, "") );
-	strcpy_s(excReport.Price, pBody->GetFieldValueDefault(FIELD::Price, "") );
-	strcpy_s(excReport.StopPx, pBody->GetFieldValueDefault(FIELD::StopPx, "") );
-	strcpy_s(excReport.TimeInForce, pBody->GetFieldValueDefault(FIELD::TimeInForce, "") );
-	strcpy_s(excReport.ExpireDate, pBody->GetFieldValueDefault(FIELD::ExpireDate, "") );
+	strcpy(excReport.ExecType, pBody->GetFieldValueDefault(FIELD::ExecType, "") );//回报类型
+	strcpy(excReport.OrdStatus, pBody->GetFieldValueDefault(FIELD::OrdStatus, "") );//订单状态
+	strcpy(excReport.ClOrdID, pBody->GetFieldValueDefault(FIELD::ClOrdID, "") );
+	strcpy(excReport.OrigClOrdID, pBody->GetFieldValueDefault(FIELD::OrigClOrdID, "") );
+	strcpy(excReport.CorrelationClOrdID, pBody->GetFieldValueDefault(FIELD::CorrelationClOrdID, "") );
+	strcpy(excReport.OrderID, pBody->GetFieldValueDefault(FIELD::OrderID, "") );
+	strcpy(excReport.SecurityDesc, pBody->GetFieldValueDefault(FIELD::SecurityDesc, "") );
+	strcpy(excReport.Side, pBody->GetFieldValueDefault(FIELD::Side, "") );
+	strcpy(excReport.OrderQty, pBody->GetFieldValueDefault(FIELD::OrderQty, "") );
+	strcpy(excReport.MinQty, pBody->GetFieldValueDefault(FIELD::MinQty, "") );
+	strcpy(excReport.MaxShow, pBody->GetFieldValueDefault(FIELD::MaxShow, "") );
+	strcpy(excReport.OrdType, pBody->GetFieldValueDefault(FIELD::OrdType, "") );
+	strcpy(excReport.Price, pBody->GetFieldValueDefault(FIELD::Price, "") );
+	strcpy(excReport.StopPx, pBody->GetFieldValueDefault(FIELD::StopPx, "") );
+	strcpy(excReport.TimeInForce, pBody->GetFieldValueDefault(FIELD::TimeInForce, "") );
+	strcpy(excReport.ExpireDate, pBody->GetFieldValueDefault(FIELD::ExpireDate, "") );
+	strcpy(excReport.LastPx, pBody->GetFieldValueDefault(FIELD::LastPx, ""));
+	strcpy(excReport.LastQty, pBody->GetFieldValueDefault(FIELD::LastQty, ""));
+	strcpy(excReport.Text, pBody->GetFieldValueDefault(FIELD::Text, ""));
 
 	//Order Status Request Acknowledgment
 	//订单状态反馈
@@ -456,8 +474,9 @@ void Worker::ExecReport(const IMessage* pMsg)
 		return ;
 	}
 
-	//OrderInfoList只更新订单状态
-	strcpy_s( order.OrdStatus, excReport.OrdStatus );
+	//OrderInfoList只更新订单状态和主场单号
+	order.OrdStatus[0] = excReport.OrdStatus[0];
+	strcpy( order.OrderID, excReport.OrderID);
 	UpdateOrder(order);
 
 	//成交信息通过LogList展示
@@ -478,6 +497,7 @@ void Worker::ExecReport(const IMessage* pMsg)
 	case 'C'://Order Elimination
 		break;
 	case '8'://Rejected
+		WriteLog(LOG_INFO, _T("[ExecReport]: Rejected. ClOrdID=%s, Text=%s"), excReport.ClOrdID, excReport.Text);
 		break;
 	case 'H'://Trade Cancelled
 		break;
@@ -493,7 +513,7 @@ void Worker::CancelReject(const IMessage* pMsg)
 	HSFixMsgBody* pBody = pMsg->GetMsgBody();
 
 	//本地单号
-	strcpy_s(excReport.ClOrdID, pBody->GetFieldValueDefault(FIELD::ClOrdID, "") );
+	strcpy(excReport.ClOrdID, pBody->GetFieldValueDefault(FIELD::ClOrdID, "") );
 
 	//按本地单号找订单
 	if ( FALSE == GetOrderByClOrderID(excReport.ClOrdID, order) )
@@ -506,11 +526,11 @@ void Worker::CancelReject(const IMessage* pMsg)
 	char cCancelRejResponseTo = pBody->GetFieldValueDefault(FIELD::CxlRejResponseTo, "E")[0];
 	if (cCancelRejResponseTo == '1')
 	{
-		strcpy_s(order.OrdStatus, "A");
+		strcpy(order.OrdStatus, "A");
 	}
 	else if (cCancelRejResponseTo == '2')
 	{
-		strcpy_s(order.OrdStatus, "L");
+		strcpy(order.OrdStatus, "L");
 	}
 
 	UpdateOrder(order);
@@ -520,13 +540,13 @@ void Worker::CancelReject(const IMessage* pMsg)
 
 int Worker::Quote(ORDER& order)
 {
-	strcpy_s(order.MsgType, "R");
+	strcpy(order.MsgType, "R");
 
 	IMessage* pMsg = CreateMessage("FIX.4.2", "R");
 	HSFixMsgBody* pBody = pMsg->GetMsgBody();
 
 	//TODO:暂时不清楚要放什么字段。Unique account identifier. 
-	pBody->SetFieldValue(FIELD::Account, _T("Hundsun UFOs7"));
+	pBody->SetFieldValue(FIELD::Account, _T("Shengsd"));
 
 	SYSTEMTIME st;
 	GetSystemTime(&st);
@@ -598,9 +618,9 @@ void Worker::AddOrder(ORDER& order)
 		//return ;
 
 	//保存
-	EnterCriticalSection(&m_csOrder);
+	EnterCriticalSection(&m_OrderLock);
 	m_mapClOrderIDToOrder[order.ClOrdID] = order;
-	LeaveCriticalSection(&m_csOrder);
+	LeaveCriticalSection(&m_OrderLock);
 
 	//界面展示
 	m_pDlg->m_lvOrderInfoList.InsertItem(0, order.ClOrdID);
@@ -682,9 +702,9 @@ void Worker::AddOrder(ORDER& order)
 void Worker::UpdateOrder(ORDER& order)
 {
 	//更新
-	EnterCriticalSection(&m_csOrder);
+	EnterCriticalSection(&m_OrderLock);
 	m_mapClOrderIDToOrder[order.ClOrdID] = order;
-	LeaveCriticalSection(&m_csOrder);
+	LeaveCriticalSection(&m_OrderLock);
 
 	//界面
 	LVFINDINFO info;
@@ -702,37 +722,37 @@ void Worker::UpdateOrder(ORDER& order)
 	switch (order.OrdStatus[0])
 	{
 	case '-'://被改、撤
-		m_pDlg->m_lvOrderInfoList.SetItemText(0, OrderInfo_Column_Status, _T("Disabled"));
+		m_pDlg->m_lvOrderInfoList.SetItemText(nIndex, OrderInfo_Column_Status, _T("Disabled"));
 		break;
 	case '0'://Order Creation
-		m_pDlg->m_lvOrderInfoList.SetItemText(0, OrderInfo_Column_Status, _T("New"));
+		m_pDlg->m_lvOrderInfoList.SetItemText(nIndex, OrderInfo_Column_Status, _T("New"));
 		break;
 	case '4'://Order Cancel
-		m_pDlg->m_lvOrderInfoList.SetItemText(0, OrderInfo_Column_Status, _T("Cancelled"));
+		m_pDlg->m_lvOrderInfoList.SetItemText(nIndex, OrderInfo_Column_Status, _T("Cancelled"));
 		break;
 	case '5'://Order Modify
-		m_pDlg->m_lvOrderInfoList.SetItemText(0, OrderInfo_Column_Status, _T("Modified"));
+		m_pDlg->m_lvOrderInfoList.SetItemText(nIndex, OrderInfo_Column_Status, _T("Modified"));
 		break;
 	case '1'://Partial fill Notice
-		m_pDlg->m_lvOrderInfoList.SetItemText(0, OrderInfo_Column_Status, _T("Partial filled"));
+		m_pDlg->m_lvOrderInfoList.SetItemText(nIndex, OrderInfo_Column_Status, _T("Partial filled"));
 		break;
 	case '2'://Complete fill Notice
-		m_pDlg->m_lvOrderInfoList.SetItemText(0, OrderInfo_Column_Status, _T("Complete filled"));
+		m_pDlg->m_lvOrderInfoList.SetItemText(nIndex, OrderInfo_Column_Status, _T("Complete filled"));
 		break;
 	case 'C'://Order Elimination
-		m_pDlg->m_lvOrderInfoList.SetItemText(0, OrderInfo_Column_Status, _T("Expired"));
+		m_pDlg->m_lvOrderInfoList.SetItemText(nIndex, OrderInfo_Column_Status, _T("Expired"));
 		break;
 	case '8'://Rejected
-		m_pDlg->m_lvOrderInfoList.SetItemText(0, OrderInfo_Column_Status, _T("Rejected"));
+		m_pDlg->m_lvOrderInfoList.SetItemText(nIndex, OrderInfo_Column_Status, _T("Rejected"));
 		break;
 	case 'H'://Trade Cancel
-		m_pDlg->m_lvOrderInfoList.SetItemText(0, OrderInfo_Column_Status, _T("Trade Cancelled"));
+		m_pDlg->m_lvOrderInfoList.SetItemText(nIndex, OrderInfo_Column_Status, _T("Trade Cancelled"));
 		break;
 	case 'A'://Cancel Reject
-		m_pDlg->m_lvOrderInfoList.SetItemText(0, OrderInfo_Column_Status, _T("Cancel Reject"));
+		m_pDlg->m_lvOrderInfoList.SetItemText(nIndex, OrderInfo_Column_Status, _T("Cancel Reject"));
 		break;
 	case 'L'://Alter Reject
-		m_pDlg->m_lvOrderInfoList.SetItemText(0, OrderInfo_Column_Status, _T("Alter Reject"));
+		m_pDlg->m_lvOrderInfoList.SetItemText(nIndex, OrderInfo_Column_Status, _T("Alter Reject"));
 		break;
 	default: 
 		WriteLog(LOG_ERROR, _T("[UpdateOrderInfoList]: OrdStatus=%s"), order.OrdStatus);
@@ -742,42 +762,42 @@ void Worker::UpdateOrder(ORDER& order)
 
 void Worker::ExtractOrderFromExcReport( ORDER& order, const EXCREPORT& excReport )
 {
-	strcpy_s(order.ClOrdID, excReport.ClOrdID);
-	strcpy_s(order.OrigClOrdID, excReport.OrigClOrdID);
-	strcpy_s(order.CorrelationClOrdID, excReport.CorrelationClOrdID);
-	strcpy_s(order.OrdStatus, excReport.OrdStatus);
-	strcpy_s(order.OrderID, excReport.OrderID);
-	strcpy_s(order.SecurityDesc, excReport.SecurityDesc);
-	strcpy_s(order.Side, excReport.Side);
-	strcpy_s(order.OrderQty, excReport.OrderQty);
-	strcpy_s(order.MinQty, excReport.MinQty);
-	strcpy_s(order.MaxShow, excReport.MaxShow);
-	strcpy_s(order.OrdType, excReport.OrdType);
-	strcpy_s(order.Price, excReport.Price);
-	strcpy_s(order.StopPx, excReport.StopPx);
-	strcpy_s(order.TimeInForce, excReport.TimeInForce);
-	strcpy_s(order.ExpireDate, excReport.ExpireDate);
+	strcpy(order.ClOrdID, excReport.ClOrdID);
+	strcpy(order.OrigClOrdID, excReport.OrigClOrdID);
+	strcpy(order.CorrelationClOrdID, excReport.CorrelationClOrdID);
+	strcpy(order.OrdStatus, excReport.OrdStatus);
+	strcpy(order.OrderID, excReport.OrderID);
+	strcpy(order.SecurityDesc, excReport.SecurityDesc);
+	strcpy(order.Side, excReport.Side);
+	strcpy(order.OrderQty, excReport.OrderQty);
+	strcpy(order.MinQty, excReport.MinQty);
+	strcpy(order.MaxShow, excReport.MaxShow);
+	strcpy(order.OrdType, excReport.OrdType);
+	strcpy(order.Price, excReport.Price);
+	strcpy(order.StopPx, excReport.StopPx);
+	strcpy(order.TimeInForce, excReport.TimeInForce);
+	strcpy(order.ExpireDate, excReport.ExpireDate);
 }
 
 BOOL Worker::GetOrderByClOrderID(const CString csClOrderID, ORDER& order)
 {
-	EnterCriticalSection(&m_csOrder);
+	EnterCriticalSection(&m_OrderLock);
 	MapClOrderIDToORDER::iterator i = m_mapClOrderIDToOrder.find(csClOrderID);
 	if (i != m_mapClOrderIDToOrder.end())
 	{
 		order = i->second;
-		LeaveCriticalSection(&m_csOrder);
+		LeaveCriticalSection(&m_OrderLock);
 		return TRUE;
 	}
 	else
 	{
-		LeaveCriticalSection(&m_csOrder);
+		LeaveCriticalSection(&m_OrderLock);
 		return FALSE; 
 	}
 }
 
 
-UINT Worker::startQuote()
+UINT Worker::startMktDt()
 {
 	WriteLog(LOG_INFO, "MDP3.0 Engine Starting, please wait...");
 	//WriteLog(LOG_ERROR, "%s", szConfigPath);
@@ -791,11 +811,11 @@ UINT Worker::startQuote()
 	ConfigStruct configStruct;
 	GetCurrentDirectory(128, configStruct.configFile);
 	GetCurrentDirectory(128, configStruct.templateFile);
-	sprintf_s(configStruct.configFile, "%s\\config.xml", configStruct.configFile);//"..\\Release\\config.xml";////////////////argv[ 1 ];$(TargetDir)\\config.xml 
-	sprintf_s(configStruct.templateFile, "%s\\templates_FixBinary.sbeir", configStruct.templateFile);//"..\\Release\\templates_FixBinary.sbeir";////////////////argv[ 2 ];$(TargetDir)\\templates_FixBinary.sbeir
-	strcpy_s(configStruct.userName, "CME");
-	strcpy_s(configStruct.passWord, "CME");
-	strcpy_s(configStruct.localInterface, "172.17.120.92");//"10.25.1.148";
+	sprintf(configStruct.configFile, "%s\\config.xml", configStruct.configFile);//"..\\Release\\config.xml";////////////////argv[ 1 ];$(TargetDir)\\config.xml 
+	sprintf(configStruct.templateFile, "%s\\templates_FixBinary.sbeir", configStruct.templateFile);//"..\\Release\\templates_FixBinary.sbeir";////////////////argv[ 2 ];$(TargetDir)\\templates_FixBinary.sbeir
+	strcpy(configStruct.userName, "CME");
+	strcpy(configStruct.passWord, "CME");
+	strcpy(configStruct.localInterface, "172.17.120.92");//"10.25.1.148";
 
 	if ( StartEngine(&configStruct, this) )
 	{
@@ -810,7 +830,7 @@ UINT Worker::startQuote()
 	return 0;
 }
 
-UINT Worker::stopQuote()
+UINT Worker::stopMktDt()
 {
 	WriteLog(LOG_INFO, "Engine Stopping, please wait...");
 	if (StopEngine())
@@ -963,7 +983,7 @@ int Worker::GetInstrumentBySecurityID(const int securityID, Instrument& inst)
 		inst = iter->second;
 		return 0;
 	}
-	return -1;
+	return 1;
 }
 
 void Worker::onMarketData(MDPFieldMap* pMDPFieldMap, const int templateID)
@@ -1052,7 +1072,7 @@ void Worker::SnapShot(MDPFieldMap* pFieldMap)
 	int nSecurityID = 0;
 	int nCount = 0;
 	//Instrument* pInst = NULL;
-	QuoteItem* qi = NULL;
+	MktDtItem* pItem = NULL;
 
 	//合约唯一ID, 检查是否处理
 	if (pField = pFieldMap->getField(FIELD::SecurityID))
@@ -1068,7 +1088,7 @@ void Worker::SnapShot(MDPFieldMap* pFieldMap)
 	}
 
 	//合约按ApplID分类
-	MapIntToSet::iterator it = m_mapApplID2SecurityIDs.find(inst.ApplID); 
+	MapIntToSetInt::iterator it = m_mapApplID2SecurityIDs.find(inst.ApplID); 
 	if (it != m_mapApplID2SecurityIDs.end())
 	{
 		it->second.insert(nSecurityID); 
@@ -1080,17 +1100,17 @@ void Worker::SnapShot(MDPFieldMap* pFieldMap)
 		m_mapApplID2SecurityIDs[inst.ApplID] = securityIDs;
 	}
 
-	MapIntToQuote::const_iterator iter = m_mapSecurityID2Quote.find(nSecurityID);
-	if(iter != m_mapSecurityID2Quote.end())
+	MapIntToMktDtItemPtr::const_iterator iter = m_mapSecurityIDToMktDt.find(nSecurityID);
+	if(iter != m_mapSecurityIDToMktDt.end())
 	{
-		qi = iter->second;
+		pItem = iter->second;
 	}
 	else
 	{
-		qi = new QuoteItem;
-		memset(qi, 0, sizeof(QuoteItem));
-		m_mapSecurityID2Quote[nSecurityID] = qi;
-		qi->securityID = nSecurityID;
+		pItem = new MktDtItem;
+		memset(pItem, 0, sizeof(MktDtItem));
+		m_mapSecurityIDToMktDt[nSecurityID] = pItem;
+		pItem->securityID = nSecurityID;
 		// 		strcpy(qi->szExchangeType, pInst->szExchangeType);
 		// 		strcpy(qi->szCommodityType, pInst->szCommodityType);
 		// 		strcpy(qi->szContractCode, pInst->szContractCode);
@@ -1103,7 +1123,7 @@ void Worker::SnapShot(MDPFieldMap* pFieldMap)
 	//TODO:合约状态
 	if (pField = pFieldMap->getField(FIELD::MDSecurityTradingStatus))
 	{
-		qi->cMarketStatus = (int)pField->getUInt();
+		pItem->cMarketStatus = (int)pField->getUInt();
 		/*
 		int nMDSecurityTradingStatus = (int)pField->getUInt();
 		switch (nMDSecurityTradingStatus)
@@ -1151,7 +1171,7 @@ void Worker::SnapShot(MDPFieldMap* pFieldMap)
 		int mSec = temp % 1000;
 		time_t rawtime = temp / 1000;
 		timeinfo = localtime(&rawtime);
-		qi->nTimeStamp = timeinfo->tm_hour * 10000000 + timeinfo->tm_min * 100000 + timeinfo->tm_sec * 1000 + mSec;
+		pItem->nTimeStamp = timeinfo->tm_hour * 10000000 + timeinfo->tm_min * 100000 + timeinfo->tm_sec * 1000 + mSec;
 	}
 
 	nCount = pFieldMap->getFieldMapNumInGroup(FIELD::NoMDEntries);
@@ -1184,31 +1204,31 @@ void Worker::SnapShot(MDPFieldMap* pFieldMap)
 			switch (cMDEntryType)
 			{
 			case '0':// Bid
-				LevelChange(qi->bidPrice, nLevel-1, inst.GBXMarketDepth, dMDEntryPx);
-				LevelChange(qi->bidVolume, nLevel-1, inst.GBXMarketDepth, nQty);
+				LevelChange(pItem->bidPrice, nLevel-1, inst.GBXMarketDepth, dMDEntryPx);
+				LevelChange(pItem->bidVolume, nLevel-1, inst.GBXMarketDepth, nQty);
 				break;
 			case '1':// Offer
-				LevelChange(qi->askPrice, nLevel-1, inst.GBXMarketDepth, dMDEntryPx);
-				LevelChange(qi->askVolume, nLevel-1, inst.GBXMarketDepth, nQty);
+				LevelChange(pItem->askPrice, nLevel-1, inst.GBXMarketDepth, dMDEntryPx);
+				LevelChange(pItem->askVolume, nLevel-1, inst.GBXMarketDepth, nQty);
 				break;
 			case 'E':// Implied Bid
-				LevelChange(qi->impliedBid, nLevel-1, inst.GBIMarketDepth, dMDEntryPx);
-				LevelChange(qi->impliedBidVol, nLevel-1, inst.GBIMarketDepth, nQty);
+				LevelChange(pItem->impliedBid, nLevel-1, inst.GBIMarketDepth, dMDEntryPx);
+				LevelChange(pItem->impliedBidVol, nLevel-1, inst.GBIMarketDepth, nQty);
 				break;
 			case 'F':// Implied Offer
-				LevelChange(qi->impliedAsk, nLevel-1, inst.GBIMarketDepth, dMDEntryPx);
-				LevelChange(qi->impliedAskVol, nLevel-1, inst.GBIMarketDepth, nQty);
+				LevelChange(pItem->impliedAsk, nLevel-1, inst.GBIMarketDepth, dMDEntryPx);
+				LevelChange(pItem->impliedAskVol, nLevel-1, inst.GBIMarketDepth, nQty);
 				break;
 			case '2':// Trade
-				qi->last = dMDEntryPx;
-				qi->lastVolume = nQty;
+				pItem->last = dMDEntryPx;
+				pItem->lastVolume = nQty;
 				break;
 			case '4':// Opening Price
 				if (pField = pFieldMapInGroup->getField(FIELD::OpenCloseSettlFlag))
 				{
 					int nOpenCloseSettlFlag = (int)pField->getUInt();
 					if (nOpenCloseSettlFlag == 0)//Daily Open Price
-						qi->open = dMDEntryPx;
+						pItem->open = dMDEntryPx;
 				}
 				break;
 			case '6':// Settlement Price
@@ -1216,14 +1236,14 @@ void Worker::SnapShot(MDPFieldMap* pFieldMap)
 				{
 					int uSettlPriceType = (int)pField->getUInt();
 					if (uSettlPriceType == 3)
-						qi->prevSettlementPrice = dMDEntryPx;
+						pItem->prevSettlementPrice = dMDEntryPx;
 				}
 				break;
 			case '7':// Session High Trade Price
-				qi->high = dMDEntryPx;
+				pItem->high = dMDEntryPx;
 				break;
 			case '8':// Session Low Trade Price
-				qi->low = dMDEntryPx;
+				pItem->low = dMDEntryPx;
 				break;
 			case 'N':// Session High Bid
 				break;
@@ -1232,23 +1252,22 @@ void Worker::SnapShot(MDPFieldMap* pFieldMap)
 			case 'B':// Cleared Trade Volume
 				break;
 			case 'C':// Open Interest
-				qi->bearVolume = nQty;
+				pItem->bearVolume = nQty;
 				break;
 			case 'W':// Fixing Price
 				break;
 			case 'e':// Electronic Volume
-				qi->tolVolume = nQty;
+				pItem->tolVolume = nQty;
 				break;
 			default:
 				break;
 			}
-
 		}
 	}
 
 	//WriteLog(LOG_INFO, "[SnapShot]:push quote security ID:%d", qi->securityID);
-	m_fLog << "[SnapShot]:push quote security ID:" << qi->securityID << std::endl;
-	PushQuote(qi);
+	m_fLog << "[SnapShot]:push quote security ID:" << pItem->securityID << std::endl;
+	PushMktDtItem(pItem);
 }
 
 void Worker::UpdateBook(MDPFieldMap* pFieldMap)
@@ -1286,7 +1305,7 @@ void Worker::UpdateBook(MDPFieldMap* pFieldMap)
 		if (pFieldMapInGroup = pFieldMap->getFieldMapPtrInGroup(FIELD::NoMDEntries, j))
 		{
 			//Instrument* pInst = NULL;
-			QuoteItem* qi = NULL;
+			MktDtItem* qi = NULL;
 			int nSecurityID = 0;
 			int nMDUpdateAction = 0;
 			char cMDEntryType = 0;
@@ -1310,17 +1329,17 @@ void Worker::UpdateBook(MDPFieldMap* pFieldMap)
 			}
 
 			//合约行情获取(创建)
-			MapIntToQuote::const_iterator iter = m_mapSecurityID2Quote.find(nSecurityID);
-			if(iter != m_mapSecurityID2Quote.end())
+			MapIntToMktDtItemPtr::const_iterator iter = m_mapSecurityIDToMktDt.find(nSecurityID);
+			if(iter != m_mapSecurityIDToMktDt.end())
 			{
 				qi = iter->second;
 			}
 			else
 			{
 				m_fLog << "Can't find the existing QuoteItem, newing one" << std::endl;
-				qi = new QuoteItem;
-				memset(qi, 0, sizeof(QuoteItem));
-				m_mapSecurityID2Quote[nSecurityID] = qi;
+				qi = new MktDtItem;
+				memset(qi, 0, sizeof(MktDtItem));
+				m_mapSecurityIDToMktDt[nSecurityID] = qi;
 				//strcpy(qi->szExchangeType, pInst->szExchangeType);
 				//strcpy(qi->szCommodityType, pInst->szCommodityType);
 				//strcpy(qi->szContractCode, pInst->szContractCode);
@@ -1474,7 +1493,7 @@ void Worker::UpdateBook(MDPFieldMap* pFieldMap)
 			//if (uMatchEventIndicator & 0x80)//Last message for the event
 			//{
 			m_fLog << "nLevel: " << nLevel << std::endl;
-			PushQuote(qi);
+			PushMktDtItem(qi);
 			//}	
 		}
 	}
@@ -1513,15 +1532,13 @@ void Worker::UpdateSessionStatistics(MDPFieldMap* pFieldMap)
 		if (pFieldMapInGroup = pFieldMap->getFieldMapPtrInGroup(FIELD::NoMDEntries, j))
 		{
 			//Instrument* pInst = NULL;
-			QuoteItem* qi = NULL;
+			MktDtItem* qi = NULL;
 			int nSecurityID = 0;
 			int nMDUpdateAction = 0;
 			char cMDEntryType = 0;
 			double dMDEntryPx = 0;
 			int nQty = 0;
 			int nLevel = 0;
-
-
 
 			//合约唯一ID, 外部主键
 			if (pField = pFieldMapInGroup->getField(FIELD::SecurityID))
@@ -1534,16 +1551,16 @@ void Worker::UpdateSessionStatistics(MDPFieldMap* pFieldMap)
 			// 			continue;
 			// 		}
 			//合约行情获取(创建)
-			MapIntToQuote::const_iterator iter = m_mapSecurityID2Quote.find(nSecurityID);
-			if(iter != m_mapSecurityID2Quote.end())
+			MapIntToMktDtItemPtr::const_iterator iter = m_mapSecurityIDToMktDt.find(nSecurityID);
+			if(iter != m_mapSecurityIDToMktDt.end())
 			{
 				qi = iter->second;
 			}
 			else
 			{
-				qi = new QuoteItem;
-				memset(qi, 0, sizeof(QuoteItem));
-				m_mapSecurityID2Quote[nSecurityID] = qi;
+				qi = new MktDtItem;
+				memset(qi, 0, sizeof(MktDtItem));
+				m_mapSecurityIDToMktDt[nSecurityID] = qi;
 				// 			strcpy(qi->szExchangeType, pInst->szExchangeType);
 				// 			strcpy(qi->szCommodityType, pInst->szCommodityType);
 				// 			strcpy(qi->szContractCode, pInst->szContractCode);
@@ -1591,7 +1608,7 @@ void Worker::UpdateSessionStatistics(MDPFieldMap* pFieldMap)
 			qi->nTimeStamp = nTimeStamp;
 			//if (uMatchEventIndicator & 0x80)
 			//{
-			PushQuote(qi);
+			PushMktDtItem(qi);
 			//}
 		}
 	}
@@ -1612,6 +1629,7 @@ void Worker::UpdateDailyStatistics(MDPFieldMap* pFieldMap)
 	{
 		uMatchEventIndicator = (unsigned char)pField->getUInt();
 	}
+
 	//时间戳
 	if (pField = pFieldMap->getField(FIELD::TransactTime))
 	{
@@ -1629,9 +1647,8 @@ void Worker::UpdateDailyStatistics(MDPFieldMap* pFieldMap)
 		//获取第i条消息
 		if (pFieldMapInGroup = pFieldMap->getFieldMapPtrInGroup(FIELD::NoMDEntries, j))
 		{
-
 			//Instrument* pInst = NULL;
-			QuoteItem* qi = NULL;
+			MktDtItem* qi = NULL;
 			int nSecurityID = 0;
 			int nMDUpdateAction = 0;
 			char cMDEntryType = 0;
@@ -1639,35 +1656,32 @@ void Worker::UpdateDailyStatistics(MDPFieldMap* pFieldMap)
 			int nQty = 0;
 			int nLevel = 0;
 
-
 			//合约唯一ID, 外部主键
 			if (pField = pFieldMapInGroup->getField(FIELD::SecurityID))
 			{
 				nSecurityID = (int)pField->getInt();
 			}
+
 			//是否在合约列表中
-			// 		if (m_pdtMgr->GetInstrumentBySecurityID(nSecurityID, pInst))
-			// 		{
-			// 			continue;
-			// 		}
+
 			//合约行情获取(创建)
-			MapIntToQuote::const_iterator iter = m_mapSecurityID2Quote.find(nSecurityID);
-			if(iter != m_mapSecurityID2Quote.end())
+			MapIntToMktDtItemPtr::const_iterator iter = m_mapSecurityIDToMktDt.find(nSecurityID);
+			if(iter != m_mapSecurityIDToMktDt.end())
 			{
 				qi = iter->second;
 			}
 			else
 			{
-				qi = new QuoteItem;
-				memset(qi, 0, sizeof(QuoteItem));
-				m_mapSecurityID2Quote[nSecurityID] = qi;
-				// 			strcpy(qi->szExchangeType, pInst->szExchangeType);
-				// 			strcpy(qi->szCommodityType, pInst->szCommodityType);
-				// 			strcpy(qi->szContractCode, pInst->szContractCode);
-				// 			qi->cProductType = pInst->cProductType;
-				// 			qi->cOptionsType = pInst->cOptionsType;
-				// 			qi->fStrikePrice = pInst->fStrikePrice;
-				// 			qi->cMarketStatus = pInst->cMarketStatus;
+				qi = new MktDtItem;
+				memset(qi, 0, sizeof(MktDtItem));
+				m_mapSecurityIDToMktDt[nSecurityID] = qi;
+				//strcpy(qi->szExchangeType, pInst->szExchangeType);
+				//strcpy(qi->szCommodityType, pInst->szCommodityType);
+				//strcpy(qi->szContractCode, pInst->szContractCode);
+				//qi->cProductType = pInst->cProductType;
+				//qi->cOptionsType = pInst->cOptionsType;
+				//qi->fStrikePrice = pInst->fStrikePrice;
+				//qi->cMarketStatus = pInst->cMarketStatus;
 			}
 
 			if (pField = pFieldMapInGroup->getField(FIELD::MDEntryType))
@@ -1709,7 +1723,7 @@ void Worker::UpdateDailyStatistics(MDPFieldMap* pFieldMap)
 			qi->nTimeStamp = nTimeStamp;
 			//if (uMatchEventIndicator & 0x80)
 			//{
-			PushQuote(qi);
+			PushMktDtItem(qi);
 			//}
 		}
 	}
@@ -1747,9 +1761,8 @@ void Worker::UpdateVolume(MDPFieldMap* pFieldMap)
 		//获取第i条消息
 		if (pFieldMapInGroup = pFieldMap->getFieldMapPtrInGroup(FIELD::NoMDEntries, j))
 		{
-
 			//Instrument* pInst = NULL;
-			QuoteItem* qi = NULL;
+			MktDtItem* pItem = NULL;
 			int nSecurityID = 0;
 			int nMDUpdateAction = 0;
 			char cMDEntryType = 0;
@@ -1760,29 +1773,31 @@ void Worker::UpdateVolume(MDPFieldMap* pFieldMap)
 			{
 				nSecurityID = (int)pField->getInt();
 			}
+
 			//是否在合约列表中
-			// 		if (m_pdtMgr->GetInstrumentBySecurityID(nSecurityID, pInst))
-			// 		{
-			// 			continue;
-			// 		}
+			// if (m_pdtMgr->GetInstrumentBySecurityID(nSecurityID, pInst))
+			// {
+			// 	continue;
+			// }
+
 			//合约行情获取(创建)
-			MapIntToQuote::const_iterator iter = m_mapSecurityID2Quote.find(nSecurityID);
-			if(iter != m_mapSecurityID2Quote.end())
+			MapIntToMktDtItemPtr::const_iterator iter = m_mapSecurityIDToMktDt.find(nSecurityID);
+			if(iter != m_mapSecurityIDToMktDt.end())
 			{
-				qi = iter->second;
+				pItem = iter->second;
 			}
 			else
 			{
-				qi = new QuoteItem;
-				memset(qi, 0, sizeof(QuoteItem));
-				m_mapSecurityID2Quote[nSecurityID] = qi;
-				// 			strcpy(qi->szExchangeType, pInst->szExchangeType);
-				// 			strcpy(qi->szCommodityType, pInst->szCommodityType);
-				// 			strcpy(qi->szContractCode, pInst->szContractCode);
-				// 			qi->cProductType = pInst->cProductType;
-				// 			qi->cOptionsType = pInst->cOptionsType;
-				// 			qi->fStrikePrice = pInst->fStrikePrice;
-				// 			qi->cMarketStatus = pInst->cMarketStatus;
+				pItem = new MktDtItem;
+				memset(pItem, 0, sizeof(MktDtItem));
+				m_mapSecurityIDToMktDt[nSecurityID] = pItem;
+				//strcpy(qi->szExchangeType, pInst->szExchangeType);
+				//strcpy(qi->szCommodityType, pInst->szCommodityType);
+				//strcpy(qi->szContractCode, pInst->szContractCode);
+				//qi->cProductType = pInst->cProductType;
+				//qi->cOptionsType = pInst->cOptionsType;
+				//qi->fStrikePrice = pInst->fStrikePrice;
+				//qi->cMarketStatus = pInst->cMarketStatus;
 			}
 
 			if (pField = pFieldMapInGroup->getField(FIELD::MDEntryType))
@@ -1800,12 +1815,12 @@ void Worker::UpdateVolume(MDPFieldMap* pFieldMap)
 
 			if (cMDEntryType = 'e')
 			{
-				qi->tolVolume = nQty;
+				pItem->tolVolume = nQty;
 			}
 
 			//if (uMatchEventIndicator & 0x80)
 			//{
-			PushQuote(qi);
+			PushMktDtItem(pItem);
 			//}
 		}
 	}
@@ -1846,7 +1861,7 @@ void Worker::UpdateTradeSummary(MDPFieldMap* pFieldMap)
 		if (pFieldMapInGroup = pFieldMap->getFieldMapPtrInGroup(FIELD::NoMDEntries, j))
 		{
 			//Instrument* pInst = NULL;
-			QuoteItem* qi = NULL;
+			MktDtItem* qi = NULL;
 			int nSecurityID = 0;
 			int nMDUpdateAction = 0;
 			char cMDEntryType = 0;
@@ -1865,16 +1880,16 @@ void Worker::UpdateTradeSummary(MDPFieldMap* pFieldMap)
 			// 			continue;
 			// 		}
 			//合约行情获取(创建)
-			MapIntToQuote::const_iterator iter = m_mapSecurityID2Quote.find(nSecurityID);
-			if(iter != m_mapSecurityID2Quote.end())
+			MapIntToMktDtItemPtr::const_iterator iter = m_mapSecurityIDToMktDt.find(nSecurityID);
+			if(iter != m_mapSecurityIDToMktDt.end())
 			{
 				qi = iter->second;
 			}
 			else
 			{
-				qi = new QuoteItem;
-				memset(qi, 0, sizeof(QuoteItem));
-				m_mapSecurityID2Quote[nSecurityID] = qi;
+				qi = new MktDtItem;
+				memset(qi, 0, sizeof(MktDtItem));
+				m_mapSecurityIDToMktDt[nSecurityID] = qi;
 				// 			strcpy(qi->szExchangeType, pInst->szExchangeType);
 				// 			strcpy(qi->szCommodityType, pInst->szCommodityType);
 				// 			strcpy(qi->szContractCode, pInst->szContractCode);
@@ -1909,7 +1924,7 @@ void Worker::UpdateTradeSummary(MDPFieldMap* pFieldMap)
 
 			//if (uMatchEventIndicator & 0x80)
 			//{
-			PushQuote(qi);
+			PushMktDtItem(qi);
 			//}
 		}
 	}
@@ -1926,7 +1941,7 @@ void Worker::SecurityStatus(MDPFieldMap* pFieldMap)
 	MDPFieldMap* pFieldMapInGroup = NULL;
 	unsigned char uMatchEventIndicator = 0;	
 	//Instrument* pInst = NULL;
-	QuoteItem* qi = NULL;
+	MktDtItem* qi = NULL;
 	int nSecurityID = 0;
 	//If this tag is present, 35=f message is sent for the instrument
 	if (pField = pFieldMap->getField(FIELD::SecurityID))
@@ -1943,16 +1958,16 @@ void Worker::SecurityStatus(MDPFieldMap* pFieldMap)
 	// 		return ;
 	// 	}
 	//合约行情获取(创建)
-	MapIntToQuote::const_iterator iter = m_mapSecurityID2Quote.find(nSecurityID);
-	if(iter != m_mapSecurityID2Quote.end())
+	MapIntToMktDtItemPtr::const_iterator iter = m_mapSecurityIDToMktDt.find(nSecurityID);
+	if(iter != m_mapSecurityIDToMktDt.end())
 	{
 		qi = iter->second;
 	}
 	else
 	{
-		qi = new QuoteItem;
-		memset(qi, 0, sizeof(QuoteItem));
-		m_mapSecurityID2Quote[nSecurityID] = qi;
+		qi = new MktDtItem;
+		memset(qi, 0, sizeof(MktDtItem));
+		m_mapSecurityIDToMktDt[nSecurityID] = qi;
 		// 		strcpy(qi->szExchangeType, pInst->szExchangeType);
 		// 		strcpy(qi->szCommodityType, pInst->szCommodityType);
 		// 		strcpy(qi->szContractCode, pInst->szContractCode);
@@ -2021,7 +2036,7 @@ void Worker::SecurityStatus(MDPFieldMap* pFieldMap)
 
 	//if (uMatchEventIndicator & 0x80)
 	//{
-	PushQuote(qi);
+	PushMktDtItem(qi);
 	//}
 }
 
@@ -2076,22 +2091,22 @@ void Worker::ChannelReset(MDPFieldMap* pFieldMap)
 			}
 			if (nMDUpdateAction == 0 && cMDEntryType == 'J')//Empty Book
 			{
-				MapIntToSet::iterator itMap = m_mapApplID2SecurityIDs.find(nApplID);
+				MapIntToSetInt::iterator itMap = m_mapApplID2SecurityIDs.find(nApplID);
 				if (itMap != m_mapApplID2SecurityIDs.end())
 				{
 					SetInt::iterator itSet = itMap->second.begin();
 					while (itSet != itMap->second.end())
 					{
 						//Empty Book
-						MapIntToQuote::iterator it = m_mapSecurityID2Quote.find(*itSet);
-						if (it != m_mapSecurityID2Quote.end())
+						MapIntToMktDtItemPtr::iterator it = m_mapSecurityIDToMktDt.find(*itSet);
+						if (it != m_mapSecurityIDToMktDt.end())
 						{
-							QuoteItem* qi = it->second;
-							EmptyQuote(qi);
+							MktDtItem* qi = it->second;
+							EmptyMktDtItem(qi);
 							qi->nTimeStamp = nTimeStamp;
 							//if (uMatchEventIndicator & 0x80)
 							//{
-							PushQuote(qi);
+							PushMktDtItem(qi);
 							//}
 						}
 						itSet++;
@@ -2104,19 +2119,19 @@ void Worker::ChannelReset(MDPFieldMap* pFieldMap)
 
 void Worker::updateOrderBook(int SecurityID)
 {
-	MapIntToQuote::iterator iter = m_mapSecurityID2Quote.find(SecurityID);
-	if (iter != m_mapSecurityID2Quote.end())
+	MapIntToMktDtItemPtr::iterator iter = m_mapSecurityIDToMktDt.find(SecurityID);
+	if (iter != m_mapSecurityIDToMktDt.end())
 	{
-		PushQuote(iter->second);
+		PushMktDtItem(iter->second);
 	}
 	else
 		m_fLog << "updateOrderBook  can't find it: "<<SecurityID <<"\n";
 
 }
 
-void Worker::PushQuote( const QuoteItem* qi )
+void Worker::PushMktDtItem( const MktDtItem* pItem )
 {
-	if (!qi)
+	if (!pItem)
 		return ;
 	/*
 	m_fLog << "[PushQuote]:security id:" << qi->securityID << endl;
@@ -2132,13 +2147,13 @@ void Worker::PushQuote( const QuoteItem* qi )
 	*/
 	int i, nIndex;
 	CString s;
-	CListCtrl& lvQuote = m_pDlg->m_lvQuoteList;
+	CListCtrl& lvMktDtInfo = m_pDlg->m_lvMktDtInfoList;
 	CListCtrl& lvOrderBook = m_pDlg->m_lvOrderBookList;
 	BOOL bInTheList = FALSE;
 
-	for (i = 0; i < lvQuote.GetItemCount(); i++)
+	for (i = 0; i < lvMktDtInfo.GetItemCount(); i++)
 	{
-		if (qi->securityID == (int)lvQuote.GetItemData(i))//Already in the list
+		if (pItem->securityID == (int)lvMktDtInfo.GetItemData(i))//Already in the list
 		{
 			nIndex = i;
 			bInTheList = TRUE;
@@ -2146,34 +2161,46 @@ void Worker::PushQuote( const QuoteItem* qi )
 		}
 	}
 
-	if (!bInTheList)//create item
+	if (!bInTheList)//Add new item
 	{
-		nIndex = lvQuote.GetItemCount();
-		s.Format("%d", qi->securityID);
-		lvQuote.InsertItem(nIndex, s);
-		lvQuote.SetItemData(nIndex, qi->securityID);
+		Instrument inst;
+		nIndex = lvMktDtInfo.GetItemCount();
+		if (GetInstrumentBySecurityID(pItem->securityID, inst))
+		{
+			WriteLog(LOG_WARNING, "[Worker::PushMktDtItem]: can't find the instrument by SecurityID=%d", pItem->securityID);
+			return;
+		}
+		lvMktDtInfo.InsertItem(nIndex, inst.Symbol);
+		lvMktDtInfo.SetItemData(nIndex, pItem->securityID);
+
+		s.Format("%d", pItem->securityID);
+		lvMktDtInfo.SetItemText(nIndex, MktDtInfo_Column_SecurityID, s);
+
+		lvMktDtInfo.SetItemText(nIndex, MktDtInfo_Column_SecurityType, inst.SecurityType);
+
+		lvMktDtInfo.SetItemText(nIndex, MktDtInfo_Column_Asset, inst.Asset);
 	}
 
 	//市场状态
-	switch (qi->cMarketStatus)
+	switch (pItem->cMarketStatus)
 	{
 	case 21:
 		s.Format("%s", "Pre Open");
 		break;
 	case 15:
-		s.Format("%s", "New Price Indication");
+		s.Format("%s", "Opening");
 		break;
 	case 17:
-		s.Format("%s", "Ready to trade (start of session)");
+		s.Format("%s", "Open");
 		break;
 	case 2:
-		s.Format("%s", "Trading halt");
+		s.Format("%s", "Pause");
 		break;
 	case 18:
-		s.Format("%s", "Not available for trading");
+		s.Format("%s", "Close - Not Final");
 		break;
 	case 4:
-		s.Format("%s", "Close");
+		s.Format("%s", "Close - Final");
 		break;
 	case 26:
 		s.Format("%s", "Post Close");
@@ -2187,44 +2214,46 @@ void Worker::PushQuote( const QuoteItem* qi )
 	case 25:
 		s.Format("%s", "Cross");
 		break;
+	case 103:
+		s.Format("%s", "No Change");
+		break;
 	default:
 		s.Format("%s", "-");
 		break;
 	}
-	lvQuote.SetItemText(nIndex, 1, s);
+	lvMktDtInfo.SetItemText(nIndex, MktDtInfo_Column_Status, s);
 
-	s.Format("%lf", qi->last);
-	lvQuote.SetItemText(nIndex, 2, s);
+	s.Format("%lf", pItem->last);
+	lvMktDtInfo.SetItemText(nIndex, MktDtInfo_Column_Last, s);
 
-	s.Format("%lf", qi->open);
-	lvQuote.SetItemText(nIndex, 3, s);
+	s.Format("%lf", pItem->open);
+	lvMktDtInfo.SetItemText(nIndex, MktDtInfo_Column_Open, s);
 
-	s.Format("%lf", qi->high);
-	lvQuote.SetItemText(nIndex, 4, s);
+	s.Format("%lf", pItem->high);
+	lvMktDtInfo.SetItemText(nIndex, MktDtInfo_Column_High, s);
 
-	s.Format("%lf", qi->close);
-	lvQuote.SetItemText(nIndex, 5, s);
+	s.Format("%lf", pItem->low);
+	lvMktDtInfo.SetItemText(nIndex, MktDtInfo_Column_Low, s);
 
-	if (qi->securityID == m_pDlg->m_securityID)
+	if (pItem->securityID == m_pDlg->m_OrderBookSecurityID)
 	{
 		ConsolidatedBook conBook = {0};
-		MergeBook(&conBook, qi);
+		MergeBook(&conBook, pItem);
 		CString s;
 		for (int i = 0; i < 10; i++)
 		{
 			s.Format("%lf", conBook.bidPrice[i]);
-			lvOrderBook.SetItemText(i, 1, s);
+			lvOrderBook.SetItemText(i, OrderBook_Column_BuyPrice, s);
 			s.Format("%d", conBook.bidVolume[i]);
-			lvOrderBook.SetItemText(i, 2, s);
+			lvOrderBook.SetItemText(i, OrderBook_Column_BuyQuantity, s);
 			s.Format("%lf", conBook.askPrice[i]);
-			lvOrderBook.SetItemText(i, 4, s);
+			lvOrderBook.SetItemText(i, OrderBook_Column_SellPrice, s);
 			s.Format("%d", conBook.askVolume[i]);
-			lvOrderBook.SetItemText(i, 5, s);
+			lvOrderBook.SetItemText(i, OrderBook_Column_SellQuantity, s);
 		}
 	}
 
 	/*
-
 	PRICEINFO priceinfo = {0};
 	priceinfo.cMarketStatus = qi->cMarketStatus;
 	priceinfo.fOpenPrice = qi->open;
@@ -2287,47 +2316,47 @@ void Worker::PushQuote( const QuoteItem* qi )
 	*/
 }
 
-void Worker::EmptyQuote(QuoteItem* qi)
+void Worker::EmptyMktDtItem(MktDtItem* pItem)
 {
 	int i;
 	for (i = 0; i < 10; i++)
 	{
-		qi->askPrice[i] = 0;
-		qi->askVolume[i] = 0;
-		qi->bidPrice[i] = 0;
-		qi->bidVolume[i] = 0;
+		pItem->askPrice[i] = 0;
+		pItem->askVolume[i] = 0;
+		pItem->bidPrice[i] = 0;
+		pItem->bidVolume[i] = 0;
 	}
 	for (i = 0; i < 2; i++)
 	{
-		qi->impliedAsk[i] = 0;
-		qi->impliedAskVol[i] = 0;
-		qi->impliedBid[i] = 0;
-		qi->impliedBidVol[i] = 0;
+		pItem->impliedAsk[i] = 0;
+		pItem->impliedAskVol[i] = 0;
+		pItem->impliedBid[i] = 0;
+		pItem->impliedBidVol[i] = 0;
 	}
-	qi->open = 0;
-	qi->high = 0;
-	qi->low = 0;
-	qi->last = 0;
-	qi->close = 0;
-	qi->lastVolume = 0;
-	qi->bearVolume = 0;
-	qi->preClose = 0;
-	qi->prevSettlementPrice = 0;
-	qi->tolVolume = 0;
-	qi->cMarketStatus = 0;
+	pItem->open = 0;
+	pItem->high = 0;
+	pItem->low = 0;
+	pItem->last = 0;
+	pItem->close = 0;
+	pItem->lastVolume = 0;
+	pItem->bearVolume = 0;
+	pItem->preClose = 0;
+	pItem->prevSettlementPrice = 0;
+	pItem->tolVolume = 0;
+	pItem->cMarketStatus = 0;
 	return ;
 }
 
 
 //合并implied book 按价格排序，相同价格的数量相加
-void Worker::MergeBook(ConsolidatedBook* conBook, const QuoteItem* qi)
+void Worker::MergeBook(ConsolidatedBook* pBook, const MktDtItem* pItem)
 {
 	int i = 0;//Implied Book Level
 	int j = 0;//Multiple-Depth Book Level
 	int nLevel;//Consolidated Book Level
 
 	Instrument inst;
-	if (GetInstrumentBySecurityID(qi->securityID, inst) == -1)
+	if (GetInstrumentBySecurityID(pItem->securityID, inst) == -1)
 		return ;
 
 
@@ -2336,30 +2365,30 @@ void Worker::MergeBook(ConsolidatedBook* conBook, const QuoteItem* qi)
 		if (i < 2)
 		{
 			//impliedBid高且数量不为零，改成implied
-			if ( qi->impliedBid[i] > qi->bidPrice[j] && qi->impliedBidVol[i] > 0)
+			if ( pItem->impliedBid[i] > pItem->bidPrice[j] && pItem->impliedBidVol[i] > 0)
 			{
-				conBook->bidPrice[nLevel] = qi->impliedBid[i];
-				conBook->bidVolume[nLevel] = qi->impliedBidVol[i];
+				pBook->bidPrice[nLevel] = pItem->impliedBid[i];
+				pBook->bidVolume[nLevel] = pItem->impliedBidVol[i];
 				++i;
 			}//相同且数量不为零，加上implied
-			else if ( qi->impliedBid[i] == qi->bidPrice[j] && qi->impliedBidVol[i] > 0)
+			else if ( pItem->impliedBid[i] == pItem->bidPrice[j] && pItem->impliedBidVol[i] > 0)
 			{
-				conBook->bidPrice[nLevel] = qi->impliedBid[i];
-				conBook->bidVolume[nLevel] = qi->impliedBidVol[i] + qi->bidVolume[j];
+				pBook->bidPrice[nLevel] = pItem->impliedBid[i];
+				pBook->bidVolume[nLevel] = pItem->impliedBidVol[i] + pItem->bidVolume[j];
 				++i;
 				++j;
 			}
 			else//直接复制
 			{
-				conBook->bidPrice[nLevel] = qi->bidPrice[j];
-				conBook->bidVolume[nLevel] = qi->bidVolume[j];
+				pBook->bidPrice[nLevel] = pItem->bidPrice[j];
+				pBook->bidVolume[nLevel] = pItem->bidVolume[j];
 				++j;
 			}
 		}
 		else
 		{
-			conBook->bidPrice[nLevel] = qi->bidPrice[j];
-			conBook->bidVolume[nLevel] = qi->bidVolume[j];
+			pBook->bidPrice[nLevel] = pItem->bidPrice[j];
+			pBook->bidVolume[nLevel] = pItem->bidVolume[j];
 			++j;
 		}
 	}
@@ -2371,30 +2400,30 @@ void Worker::MergeBook(ConsolidatedBook* conBook, const QuoteItem* qi)
 		if (i < 2)
 		{
 			//impliedBid小且数量不为零，改成implied
-			if ( qi->impliedAsk[i] < qi->askPrice[j] && qi->impliedAskVol[i] > 0)
+			if ( pItem->impliedAsk[i] < pItem->askPrice[j] && pItem->impliedAskVol[i] > 0)
 			{
-				conBook->askPrice[nLevel] = qi->impliedAsk[i];
-				conBook->askVolume[nLevel] = qi->impliedAskVol[i];
+				pBook->askPrice[nLevel] = pItem->impliedAsk[i];
+				pBook->askVolume[nLevel] = pItem->impliedAskVol[i];
 				++i;
 			}//相同且数量不为零，加上implied
-			else if ( qi->impliedAsk[i] == qi->askPrice[j] && qi->impliedAskVol[i] > 0)
+			else if ( pItem->impliedAsk[i] == pItem->askPrice[j] && pItem->impliedAskVol[i] > 0)
 			{
-				conBook->askPrice[nLevel] = qi->impliedAsk[i];
-				conBook->askVolume[nLevel] = qi->impliedAskVol[i] + qi->askVolume[j];
+				pBook->askPrice[nLevel] = pItem->impliedAsk[i];
+				pBook->askVolume[nLevel] = pItem->impliedAskVol[i] + pItem->askVolume[j];
 				++i;
 				++j;
 			}
 			else//直接复制
 			{
-				conBook->askPrice[nLevel] = qi->askPrice[j];
-				conBook->askVolume[nLevel] = qi->askVolume[j];
+				pBook->askPrice[nLevel] = pItem->askPrice[j];
+				pBook->askVolume[nLevel] = pItem->askVolume[j];
 				++j;
 			}
 		}
 		else
 		{
-			conBook->askPrice[nLevel] = qi->askPrice[j];
-			conBook->askVolume[nLevel] = qi->askVolume[j];
+			pBook->askPrice[nLevel] = pItem->askPrice[j];
+			pBook->askVolume[nLevel] = pItem->askVolume[j];
 			++j;
 		}
 	}
@@ -2489,7 +2518,7 @@ void FUNCTION_CALL_MODE Worker::ToAdmin( IMessage * lpMsg, const ISessionID * lp
 		//pBody->SetFieldValue(FIELD::RawData, "JOXKS");
 		pBody->SetFieldValue(FIELD::RawData, "4S5");
 		pBody->SetFieldValue(FIELD::RawDataLength, "3");
-		pBody->SetFieldValue(FIELD::ResetSeqNumFlag, "N");
+		//pBody->SetFieldValue(FIELD::ResetSeqNumFlag, "N");
 		pBody->SetFieldValue(FIELD::EncryptMethod, "0");
 		pBody->SetFieldValue(FIELD::ApplicationSystemName, "Hundsun UFOs");
 		pBody->SetFieldValue(FIELD::TradingSystemVersion, "V7.0");
@@ -2506,7 +2535,7 @@ int FUNCTION_CALL_MODE Worker::ToApp( IMessage * lpMsg, const ISessionID * lpSes
 	ISession* pSession = GetSessionByID((ISessionID *)lpSessionID);
 	HSFixHeader *pHeader = lpMsg->GetHeader();
 	HSFixMsgBody *body = lpMsg->GetMsgBody();
-	pHeader->SetFieldValue(FIELD::SenderSubID, "GZENG");
+	pHeader->SetFieldValue(FIELD::SenderSubID, "HSUFOs7");
 	pHeader->SetFieldValue(FIELD::TargetSubID, "G");
 	pHeader->SetFieldValue(FIELD::SenderLocationID, "CN");
 	pHeader->SetFieldValue(FIELD::LastMsgSeqNumProcessed, _ltoa(pSession->getExpectedTargetNum() - 1, szLastMsgSeqNumProcessed, 10 ) );
@@ -2547,7 +2576,7 @@ int FUNCTION_CALL_MODE Worker::FromAdmin( const IMessage * lpMsg , const ISessio
 	}
 	else if (strncmp(msgType, "3", 1) == 0)		//CME Globex发来的会话层拒绝消息
 	{
-		//WriteLog(LOG_INFO, "[Worker::FromAdmin]:received a session level reject message\n");
+		WriteLog(LOG_INFO, "[Worker::FromAdmin]:received a session level reject message\n");
 	}
 	else if (strncmp(msgType, "4", 1) == 0)		//CME Globex发来的Sequence Reset消息
 	{
@@ -2559,7 +2588,7 @@ int FUNCTION_CALL_MODE Worker::FromAdmin( const IMessage * lpMsg , const ISessio
 	}
 	else
 	{
-		//WriteLog(LOG_DEBUG, "[Worker::FromAdmin]Unhandle message. Message type: %s\n", msgType);
+		WriteLog(LOG_DEBUG, "[Worker::FromAdmin]Unhandle message. Message type: %s\n", msgType);
 	}
 	return 0;
 }
@@ -2578,7 +2607,7 @@ int FUNCTION_CALL_MODE Worker::FromApp( const IMessage *lpMsg , const ISessionID
 	}
 	else if(strncmp(msgType, "9", 1) == 0)  // Order Cancel Reject (tag 35-MsgType=9)
 	{
-		//WriteLog(LOG_INFO, "[Worker::FromApp]:Order Cancel Reject received\n");
+		WriteLog(LOG_INFO, "[Worker::FromApp]:Order Cancel Reject received\n");
 		CancelReject(lpMsg);
 	}
 	else if (strncmp(msgType, "b", 1) == 0)
@@ -2588,7 +2617,7 @@ int FUNCTION_CALL_MODE Worker::FromApp( const IMessage *lpMsg , const ISessionID
 	}
 	else
 	{
-		//WriteLog(LOG_DEBUG, "[Worker::FromApp]Unhandle message. Message type: %c\n", msgType);
+		WriteLog(LOG_DEBUG, "[Worker::FromApp]Unhandle message. Message type: %c\n", msgType);
 	}
 	return 0;
 }

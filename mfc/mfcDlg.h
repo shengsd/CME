@@ -25,6 +25,23 @@
 #define OrderInfo_Column_ExpireDate 14
 #define OrderInfo_Column_Symbol 15
 
+//行情信息列表表头
+#define MktDtInfo_Column_Symbol 0
+#define MktDtInfo_Column_Status 1
+#define MktDtInfo_Column_SecurityID 2
+#define MktDtInfo_Column_Asset 3
+#define MktDtInfo_Column_SecurityType 4
+#define MktDtInfo_Column_Last 5
+#define MktDtInfo_Column_Open 6
+#define MktDtInfo_Column_High 7
+#define MktDtInfo_Column_Low 8
+
+#define OrderBook_Column_BuyLevel 0
+#define OrderBook_Column_BuyPrice 1
+#define OrderBook_Column_BuyQuantity 2
+#define OrderBook_Column_SellLevel 3
+#define OrderBook_Column_SellPrice 4
+#define OrderBook_Column_SellQuantity 5
 // CmfcDlg 对话框
 class CmfcDlg : public CDialog
 {
@@ -61,13 +78,13 @@ public:
 	// 订单信息
 	CListCtrl m_lvOrderInfoList;
 	// 行情信息
-	CListCtrl m_lvQuoteList;
+	CListCtrl m_lvMktDtInfoList;
 	// 日志容器
 	CListBox m_lbLogList;
 	// 买卖盘
 	CListCtrl m_lvOrderBookList;
 	// 买卖盘当前显示的合约ID
-	int m_securityID;
+	int m_OrderBookSecurityID;
 
 	// 交易合约主键 对应MDP3.0的Symbol
 	CComboBox m_SecurityDesc;

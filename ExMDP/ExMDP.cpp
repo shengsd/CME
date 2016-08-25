@@ -12,7 +12,7 @@ EXMDP_API int StartEngine( ConfigStruct* configStruct, Application* application 
 		return -1;
 	if (application == NULL)
 	{
-		strcpy_s(configStruct->errorInfo, "Param Application* is NULL");
+		strcpy(configStruct->errorInfo, "Param Application* is NULL");
 		return -1;
 	}
 
@@ -26,7 +26,7 @@ EXMDP_API int StartEngine( ConfigStruct* configStruct, Application* application 
 	}
 	catch ( std::exception& e )
 	{
-		strcpy_s(configStruct->errorInfo, e.what());
+		strcpy(configStruct->errorInfo, e.what());
 		return -1;
 	}
 

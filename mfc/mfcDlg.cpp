@@ -49,7 +49,7 @@ UINT Quote( LPVOID pParam )
 	pDlg->GetDlgItem(IDC_BUTTON5)->EnableWindow(FALSE);
 	if (bQuote)//stop
 	{
-		if (!g_worker.stopQuote())
+		if (!g_worker.stopMktDt())
 		{
 			pDlg->GetDlgItem(IDC_BUTTON5)->SetWindowTextA(_T("Quote ON"));
 			pDlg->GetDlgItem(IDC_BUTTON5)->EnableWindow(TRUE);
@@ -64,7 +64,7 @@ UINT Quote( LPVOID pParam )
 	}
 	else//start
 	{
-		if (!g_worker.startQuote())
+		if (!g_worker.startMktDt())
 		{
 			pDlg->GetDlgItem(IDC_BUTTON5)->SetWindowTextA(_T("Quote OFF"));
 			pDlg->GetDlgItem(IDC_BUTTON5)->EnableWindow(TRUE);
@@ -116,7 +116,7 @@ CmfcDlg::CmfcDlg(CWnd* pParent /*=NULL*/)
 	: CDialog(CmfcDlg::IDD, pParent)
 {
 	m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
-	m_securityID = 0;
+	m_OrderBookSecurityID = 0;
 }
 
 void CmfcDlg::DoDataExchange(CDataExchange* pDX)
@@ -131,7 +131,7 @@ void CmfcDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_COMBO6, m_TimeInForce);
 	DDX_Control(pDX, IDC_EDIT1, m_Price);
 	DDX_Control(pDX, IDC_EDIT2, m_StopPx);
-	DDX_Control(pDX, IDC_LIST2, m_lvQuoteList);
+	DDX_Control(pDX, IDC_LIST2, m_lvMktDtInfoList);
 	DDX_Control(pDX, IDC_LIST4, m_lbLogList);
 	DDX_Control(pDX, IDC_LIST1, m_lvOrderBookList);
 	DDX_Control(pDX, IDC_EDIT3, m_OrderQty);
@@ -229,30 +229,32 @@ BOOL CmfcDlg::OnInitDialog()
 	m_lvOrderInfoList.SetItemText(0, OrderInfo_Column_StopPx, _T("StopPx"));
 	/*/
 
-
 	//初始化行情信息ListControl
-	m_lvQuoteList.SetExtendedStyle(m_lvQuoteList.GetExtendedStyle() | LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
-	m_lvQuoteList.InsertColumn(0, _T("SecurityID"), LVCFMT_LEFT, 80);
-	m_lvQuoteList.InsertColumn(1, _T("MaketStatus"), LVCFMT_LEFT, 80);
-	m_lvQuoteList.InsertColumn(2, _T("Last"), LVCFMT_LEFT, 50);
-	m_lvQuoteList.InsertColumn(3, _T("Open"), LVCFMT_LEFT, 50);
-	m_lvQuoteList.InsertColumn(4, _T("High"), LVCFMT_LEFT, 50);
-	m_lvQuoteList.InsertColumn(5, _T("Close"), LVCFMT_LEFT, 50);
+	m_lvMktDtInfoList.SetExtendedStyle(m_lvMktDtInfoList.GetExtendedStyle() | LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
+	m_lvMktDtInfoList.InsertColumn(MktDtInfo_Column_Symbol, _T("Symbol"), LVCFMT_LEFT, 80);
+	m_lvMktDtInfoList.InsertColumn(MktDtInfo_Column_Status, _T("Status"), LVCFMT_LEFT, 80);
+	m_lvMktDtInfoList.InsertColumn(MktDtInfo_Column_SecurityID, _T("SecurityID"), LVCFMT_LEFT, 80);
+	m_lvMktDtInfoList.InsertColumn(MktDtInfo_Column_Asset, _T("Asset"), LVCFMT_LEFT, 50);
+	m_lvMktDtInfoList.InsertColumn(MktDtInfo_Column_SecurityType, _T("SecurityType"), LVCFMT_LEFT, 80);
+	m_lvMktDtInfoList.InsertColumn(MktDtInfo_Column_Last, _T("Last"), LVCFMT_LEFT, 50);
+	m_lvMktDtInfoList.InsertColumn(MktDtInfo_Column_Open, _T("Open"), LVCFMT_LEFT, 50);
+	m_lvMktDtInfoList.InsertColumn(MktDtInfo_Column_High, _T("High"), LVCFMT_LEFT, 50);
+	m_lvMktDtInfoList.InsertColumn(MktDtInfo_Column_Low, _T("Low"), LVCFMT_LEFT, 50);
 
 	//初始化买卖盘ListControl
 	m_lvOrderBookList.SetExtendedStyle(m_lvOrderBookList.GetExtendedStyle() | LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
-	m_lvOrderBookList.InsertColumn(0, _T("Level"), LVCFMT_LEFT, 40);
-	m_lvOrderBookList.InsertColumn(1, _T("BuyPrice"), LVCFMT_LEFT, 100);
-	m_lvOrderBookList.InsertColumn(2, _T("BuyQuantity"), LVCFMT_LEFT, 60);
-	m_lvOrderBookList.InsertColumn(3, _T("Level"), LVCFMT_LEFT, 40);
-	m_lvOrderBookList.InsertColumn(4, _T("SellPrice"), LVCFMT_LEFT, 100);
-	m_lvOrderBookList.InsertColumn(5, _T("SellQuantity"), LVCFMT_LEFT, 60);
+	m_lvOrderBookList.InsertColumn(OrderBook_Column_BuyLevel, _T("Level"), LVCFMT_LEFT, 40);
+	m_lvOrderBookList.InsertColumn(OrderBook_Column_BuyPrice, _T("BuyPrice"), LVCFMT_LEFT, 100);
+	m_lvOrderBookList.InsertColumn(OrderBook_Column_BuyQuantity, _T("BuyQuantity"), LVCFMT_LEFT, 60);
+	m_lvOrderBookList.InsertColumn(OrderBook_Column_SellLevel, _T("Level"), LVCFMT_LEFT, 40);
+	m_lvOrderBookList.InsertColumn(OrderBook_Column_SellPrice, _T("SellPrice"), LVCFMT_LEFT, 100);
+	m_lvOrderBookList.InsertColumn(OrderBook_Column_SellQuantity, _T("SellQuantity"), LVCFMT_LEFT, 60);
 	for (int i = 0; i < 10; i++)
 	{
 		CString s;
 		s.Format("%d", i+1);
-		m_lvOrderBookList.InsertItem(i, s);
-		m_lvOrderBookList.SetItemText(i, 3, s);
+		m_lvOrderBookList.InsertItem(i, s);//OrderBook_Column_BuyLevel
+		m_lvOrderBookList.SetItemText(i, OrderBook_Column_SellLevel, s);
 	}
 
 	//初始化日志框
@@ -406,6 +408,10 @@ void CmfcDlg::OnBnClickedEnter()
 	}
 	_tcscpy_s(order.OrderQty, _countof(order.OrderQty), csOrderQty);
 
+	CString csMaxShow;
+	m_MaxShow.GetWindowTextA(csMaxShow);
+	_tcscpy_s(order.MaxShow, _countof(order.MaxShow), csMaxShow);
+
 	CString csOrdType;
 	m_OrdType.GetWindowText(csOrdType);
 	if (csOrdType.IsEmpty())
@@ -528,8 +534,8 @@ void CmfcDlg::OnNMDblclkList2(NMHDR *pNMHDR, LRESULT *pResult)
  	if (-1 != nIndex)
  	{
  		//m_lvOrderBook.SetItemText(0, 0, "set");
-		m_securityID = (int )m_lvQuoteList.GetItemData(nIndex);
-		g_worker.updateOrderBook(m_securityID);
+		m_OrderBookSecurityID = (int )m_lvMktDtInfoList.GetItemData(nIndex);
+		g_worker.updateOrderBook(m_OrderBookSecurityID);
  	}
 }
 
@@ -564,14 +570,15 @@ void CmfcDlg::OnNMDblclkListOrderInfo(NMHDR *pNMHDR, LRESULT *pResult)
 		MessageBox( _T("Can't find the order!"), _T("Error"), MB_ICONERROR | MB_OK );
 		return;
 	}
-	
+	//改、撤单不限制
+	/*
 	//已报或已改状态下 可以改、撤单
 	if ( _T('0') != order.OrdStatus[0] && _T('0') != order.OrdStatus[5] )
 	{
 		MessageBox( _T("Can't cancel or repalce this order, wrong OrdStatus!"), _T("Error"), MB_ICONERROR | MB_OK );
 		return;
 	}
-
+	*/
 	CAlterDlg alterDlg(order);
 
 	//待改/撤参数显示到窗口

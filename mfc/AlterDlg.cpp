@@ -53,9 +53,10 @@ void CAlterDlg::OnBnClickedCancelOrder()
 
 void CAlterDlg::OnBnClickedReplaceOrder()
 {
-	strcpy_s(m_order.OrderQty, m_csOrigOrderQty);
-	strcpy_s(m_order.Price, m_csOrigPrice);
-	strcpy_s(m_order.StopPx, m_csOrigStopPx);
-	g_worker.ReplaceOrder(m_order);	
+	strcpy(m_order.OrderQty, m_csOrigOrderQty);
+	strcpy(m_order.Price, m_csOrigPrice);
+	strcpy(m_order.StopPx, m_csOrigStopPx);
+	g_worker.ReplaceOrder(m_order);
 	CDialogEx::OnOK();
 }
+

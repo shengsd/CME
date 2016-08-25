@@ -18,8 +18,8 @@ namespace MDP
 		m_bLog = TRUE;
 		time(&m_lastTimeOut);
 		//file_mkdir("MDPEngineLog");
-		m_fLog.open("MDPEngine.log", std::ios::out | std::ios::binary | std::ios::trunc );
-		if ( !m_fLog.is_open() ) throw ConfigError( "can't open MDPEngine.log");
+		//m_fLog.open("MDPEngine.log", std::ios::out | std::ios::binary | std::ios::trunc );
+		//if ( !m_fLog.is_open() ) throw ConfigError( "can't open MDPEngine.log");
 		m_fDecoding.open("Decoding.log", std::ios::out | std::ios::binary | std::ios::trunc );
 		if ( !m_fDecoding.is_open() ) throw ConfigError( "can't open decoding.log");
 	}
@@ -123,14 +123,14 @@ namespace MDP
 		if ( !thread_spawn( &processorThread, this, m_tProcessorID ) )
 			throw RuntimeError("[start]: Unable to spawn processor ");
 
-		m_fLog << "Engine Started..." << std::endl;
+		//m_fLog << "Engine Started..." << std::endl;
 	}
 
 
 	void Initiator::stop()
 	{
 		//g_lpfnWriteLog(LOG_DEBUG, "stop called\n");
-		m_fLog << "[Initiator]: stop called\n";
+		//m_fLog << "[Initiator]: stop called\n";
 		if (m_hEventStop)
 			SetEvent(m_hEventStop);
 
@@ -139,14 +139,14 @@ namespace MDP
 			thread_join( m_tReceiverID );
 		m_tReceiverID = 0;
 
-		m_fLog << "[Initiator]: stop receiver \n";
+		//m_fLog << "[Initiator]: stop receiver \n";
 
 		//等待处理线程退出
 		if ( m_tProcessorID )
 			thread_join( m_tProcessorID );
 		m_tProcessorID = 0;
 
-		m_fLog << "[Initiator]: stop processor \n";
+		//m_fLog << "[Initiator]: stop processor \n";
 
 		//断开所有socket连接，清空连接信息
 		//g_lpfnWriteLog(LOG_DEBUG, "m_socketToSocketInfo.size:%d\n", m_socketToSocketInfo.size());
@@ -193,12 +193,12 @@ namespace MDP
 			delete p;
 		}
 
-		m_fLog << "Engine Stopped..." << std::endl;
+		//m_fLog << "Engine Stopped..." << std::endl;
 	}
 
 	void Initiator::onReceiverStart()
 	{
-		m_fLog << "Receiver thread start...\n";
+		//m_fLog << "Receiver thread start...\n";
 		//TODO:加入组播分为两种情形，目前实现的是第2种
 		//1.Pre-Opening Startup
 		//2.Late Joiner Startup
@@ -211,12 +211,12 @@ namespace MDP
 		}
 
 		//g_lpfnWriteLog(LOG_DEBUG, "Receiver thread exit...\n");
-		m_fLog << "Receiver thread exit...\n";
+		//m_fLog << "Receiver thread exit...\n";
 	}
 
 	void Initiator::onProcessorStart()
 	{
-		m_fLog << "Processor thread start...\n" ;
+		//m_fLog << "Processor thread start...\n" ;
 		HANDLE lpHandles[2];
 		lpHandles[0] = m_hEventStop;
 		lpHandles[1] = m_hEventData;
@@ -224,7 +224,7 @@ namespace MDP
 		//程序没有终止并且有行情包未处理
 		while ((dwWaitResult = WaitForMultipleObjects(2, lpHandles, FALSE, INFINITE)) != WAIT_OBJECT_0)
 		{
-			m_fDecoding << "[onProcessorStart]: left:";
+			//m_fDecoding << "[onProcessorStart]: left:";
 			if (dwWaitResult == WAIT_OBJECT_0 + 1)
 			{
 				//获取数据包
@@ -275,7 +275,7 @@ namespace MDP
 			}
 		}
 		//m_fLog << "[onProcessorStart]: left:" << m_packetQueue.size() << std::endl;
-		m_fLog << "Processor thread exit...\n" ;
+		//m_fLog << "Processor thread exit...\n" ;
 		//g_lpfnWriteLog(LOG_DEBUG, "Processor thread exit...\n");
 		/*
 		//int num = 0;
@@ -408,7 +408,7 @@ namespace MDP
 		}
 		catch (std::exception& e)
 		{
-			m_fLog << e.what() << std::endl;
+			//m_fLog << e.what() << std::endl;
 			//g_lpfnWriteLog(LOG_WARNING, "%s\n", e.what());
 			return false; 
 		}
@@ -460,7 +460,7 @@ namespace MDP
 				}
 				catch (std::exception& e)
 				{
-					m_fLog << e.what() << std::endl;
+					//m_fLog << e.what() << std::endl;
 					//g_lpfnWriteLog(LOG_WARNING, "%s\n", e.what());
 					return false; 
 				}
@@ -505,7 +505,7 @@ namespace MDP
 		}
 		catch (std::exception& e)
 		{
-			m_fLog << e.what() << std::endl;
+			//m_fLog << e.what() << std::endl;
 			//g_lpfnWriteLog(LOG_WARNING, "[Channel ID]:%d, [doConnectToInstDef]:%s\n", c, e.what());
 			return false; 
 		}
@@ -553,7 +553,7 @@ namespace MDP
 		}
 		catch (std::exception& e)
 		{
-			m_fLog << e.what() << std::endl;
+			//m_fLog << e.what() << std::endl;
 			//g_lpfnWriteLog(LOG_WARNING, "[Channel ID]:%d, [doConnectToSnapShot]:%s\n", c, e.what());
 			return false; 
 		}
