@@ -41,6 +41,7 @@ namespace FIELD
 	 CtiCode = 9702,
 	 CorrelationClOrdID = 9717,
 	 DisplayFactor = 9787,
+	 QuoteType = 9943,
 	 MainFraction = 37702
   };
 }

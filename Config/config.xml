@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<configuration environment="New Release Certification" updated="2015/07/26-14:30:38">
+        <channel id="310" label="CME Globex Equity Futures">
+                <products>
+                        <product code="ES">
+                                <group code="ES" />
+                        </product>
+                </products>
+                <connections>
+                        <connection id="310H1A">
+                                <type feed-type="H">Historical Replay</type>
+                                <protocol>TCP/IP</protocol>
+                                <host-ip>69.50.112.161</host-ip>
+                                <port>9001</port>
+                                <feed>A</feed>
+                        </connection>
+                        <connection id="310IA">
+                                <type feed-type="I">Incremental</type>
+                                <protocol>UDP/IP</protocol>
+                                <ip>233.158.8.1</ip>
+                                <host-ip>69.50.112.111</host-ip>
+                                <port>14310</port>
+                                <feed>A</feed>
+                        </connection>
+                        <connection id="310IB">
+                                <type feed-type="I">Incremental</type>
+                                <protocol>UDP/IP</protocol>
+                                <ip>233.158.8.128</ip>
+                                <host-ip>69.50.112.111</host-ip>
+                                <port>15310</port>
+                                <feed>B</feed>
+                        </connection>
+                        <connection id="310NA">
+                                <type feed-type="N">Instrument Replay</type>
+                                <protocol>UDP/IP</protocol>
+                                <ip>233.158.8.85</ip>
+                                <host-ip>69.50.112.65</host-ip>
+                                <port>6310</port>
+                                <feed>A</feed>
+                        </connection>
+                        <connection id="310NB">
+                                <type feed-type="N">Instrument Replay</type>
+                                <protocol>UDP/IP</protocol>
+                                <ip>233.158.8.212</ip>
+                                <host-ip>69.50.112.65</host-ip>
+                                <port>7310</port>
+                                <feed>B</feed>
+                        </connection>
+                        <connection id="310SA">
+                                <type feed-type="S">Snapshot</type>
+                                <protocol>UDP/IP</protocol>
+                                <ip>233.158.8.43</ip>
+                                <host-ip>69.50.112.122</host-ip>
+                                <port>6310</port>
+                                <feed>A</feed>
+                        </connection>
+                        <connection id="310SB">
+                                <type feed-type="S">Snapshot</type>
+                                <protocol>UDP/IP</protocol>
+                                <ip>233.158.8.170</ip>
+                                <host-ip>69.50.112.122</host-ip>
+                                <port>7310</port>
+                                <feed>B</feed>
+                        </connection>
+                </connections>
+        </channel>
+</configuration>

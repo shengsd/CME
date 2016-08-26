@@ -522,7 +522,7 @@ namespace FIELD
 		,NoAffectedOrders = 534
 		,AffectedOrderID = 535
 		,AffectedSecondaryOrderID = 536
-		,QuoteType = 537
+		//,QuoteType = 537
 		,NestedPartyRole = 538
 		,NoNestedPartyIDs = 539
 		,TotalAccruedInterestAmt = 540

@@ -615,15 +615,6 @@ void CmfcDlg::OnBnClickedQuote()
 	// TODO: 在此添加控件通知处理程序代码
 	ORDER order = {0};
 
-	CString csSecurityDesc;
-	m_SecurityDesc.GetWindowText(csSecurityDesc);
-	if (csSecurityDesc.IsEmpty())
-	{
-		MessageBox(_T("SecurityDesc"), _T("Warning"));
-		return;
-	}
-	_tcscpy_s(order.SecurityDesc, _countof(order.SecurityDesc), csSecurityDesc);
-
 	CString csSymbol;
 	m_Symbol.GetWindowText(csSymbol);
 	if (csSymbol.IsEmpty())
@@ -633,6 +624,23 @@ void CmfcDlg::OnBnClickedQuote()
 	}
 	_tcscpy_s(order.Symbol, _countof(order.Symbol), csSymbol);
 
+	CString csOrderQty;
+	m_OrderQty.GetWindowText(csOrderQty);
+	_tcscpy_s(order.OrderQty, _countof(order.OrderQty), csOrderQty);
+
+	CString csSide;
+	m_Side.GetWindowText(csSide);
+	order.Side[0] = csSide.GetAt(0);
+
+	CString csSecurityDesc;
+	m_SecurityDesc.GetWindowText(csSecurityDesc);
+	if (csSecurityDesc.IsEmpty())
+	{
+		MessageBox(_T("SecurityDesc"), _T("Warning"));
+		return;
+	}
+	_tcscpy_s(order.SecurityDesc, _countof(order.SecurityDesc), csSecurityDesc);
+
 	CString csSecurityType;
 	m_SecurityType.GetWindowText(csSecurityType);
 	if (csSecurityType.IsEmpty())
@@ -641,24 +649,6 @@ void CmfcDlg::OnBnClickedQuote()
 		return;
 	}
 	_tcscpy_s(order.SecurityType, _countof(order.SecurityType), csSecurityType);
-
-	CString csSide;
-	m_Side.GetWindowText(csSide);
-	if (csSide.IsEmpty())
-	{
-		MessageBox(_T("Side"), _T("Warning"));
-		return;
-	}
-	order.Side[0] = csSide.GetAt(0);
-
-	CString csOrderQty;
-	m_OrderQty.GetWindowText(csOrderQty);
-	if (csOrderQty.IsEmpty())
-	{
-		MessageBox(_T("OrderQty"), _T("Warning"));
-		return;
-	}
-	_tcscpy_s(order.OrderQty, _countof(order.OrderQty), csOrderQty);
 
 	g_worker.Quote(order);
 }

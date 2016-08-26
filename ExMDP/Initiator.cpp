@@ -20,7 +20,11 @@ namespace MDP
 		//file_mkdir("MDPEngineLog");
 		//m_fLog.open("MDPEngine.log", std::ios::out | std::ios::binary | std::ios::trunc );
 		//if ( !m_fLog.is_open() ) throw ConfigError( "can't open MDPEngine.log");
-		m_fDecoding.open("Decoding.log", std::ios::out | std::ios::binary | std::ios::trunc );
+		if (_access(".\\CME", 0) != 0)
+		{
+			_mkdir(".\\CME");
+		}
+		m_fDecoding.open(".\\CME\\Decoding.log", std::ios::out | std::ios::binary | std::ios::trunc );
 		if ( !m_fDecoding.is_open() ) throw ConfigError( "can't open decoding.log");
 	}
 

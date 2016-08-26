@@ -73,6 +73,7 @@ typedef struct tagEXCREPORT
 	TCHAR TradeDate[9];//Indicates date of trade reference in this message in YYYYMMDD format.
 	TCHAR SecurityDesc[21];//Instrument identifier. 	e.g. "ESM0'
 	TCHAR	MinQty[10];		//Minimum quantity of an order to be executed. This tag is used only when tag 59-TimeInForce=3 (Fill and Kill). The value of MinQty must be between 1 and the value in tag 38-OrderQty. 
+	TCHAR	SecurityType[4];//Indicates instrument is future or option.
 	TCHAR ExecType[2];//执行报告类型
 	TCHAR LeavesQty[10];//剩下的没成交的数量
 	TCHAR	ExpireDate[9];	//YYYYMMDD Required only if tag 59-TimeInForce=Good Till Date (GTD).
@@ -287,10 +288,8 @@ public:
 	//通过行情接收合约
 	void OnUpdate(MDPFieldMap* pFieldMap);
 private:
-
-	typedef std::map<int, Instrument> MapIntToInstrument;//保存Instrument
-
-	MapIntToInstrument m_mapSecurityID2Inst;//外部合约 -> Instrument
+	typedef std::map<int, Instrument> MapIntToInstrument;
+	MapIntToInstrument m_mapSecurityID2Inst;//外部合约ID -> Instrument
 
 	//行情功能
 public:

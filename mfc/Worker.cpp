@@ -1,6 +1,8 @@
 #include "StdAfx.h"
 #include "Worker.h"
 #include "mfc.h"
+#include <io.h>
+#include <direct.h>
 
 Worker::Worker(void)
 {
@@ -215,7 +217,7 @@ int Worker::EnterOrder(ORDER& order)
 	//The type of business conducted. 0=Customer 1=Firm 
 	pBody->SetFieldValue(FIELD::CustomerOrFirm, _T("1"));
 
-	//MaxShow 冰山单里的最大显示数量，这里
+	//MaxShow 冰山单里的最大显示数量，这里非0才添加该字段
 	if (atoi(order.MaxShow) != 0)
 	{
 		pBody->SetFieldValue(FIELD::MaxShow, order.MaxShow);
@@ -321,6 +323,10 @@ int Worker::CancelOrder(ORDER& order)
 		oldOrder.OrdStatus[0] = '-';
 		UpdateOrder(oldOrder);
 	}
+	else
+	{
+		WriteLog(LOG_ERROR, "[CancelOrder]: can't find oldOrder.");
+	}
 
 	//保存新订单
 	order.OrdStatus[0] = 'P';
@@ -355,10 +361,27 @@ int Worker::ReplaceOrder(ORDER& order)
 	//改单数量
 	pBody->SetFieldValue(FIELD::OrderQty, order.OrderQty);
 
-	//CustOrderHandlingInst
-
 	//OrderType
 	pBody->SetFieldValue(FIELD::OrdType, order.OrdType);
+	switch (order.OrdType[0])
+	{
+	case _T('1')://Market order (with protection) 
+		break;
+	case _T('2')://Limit order 
+		pBody->SetFieldValue(FIELD::Price, order.Price);
+		break;
+	case _T('3')://Stop order (with protection) 
+		pBody->SetFieldValue(FIELD::StopPx, order.StopPx);
+		break;
+	case _T('4')://Stop-Limit order
+		pBody->SetFieldValue(FIELD::Price, order.Price);
+		pBody->SetFieldValue(FIELD::StopPx, order.StopPx);
+		break;
+	case _T('K')://Market-Limit order
+		break;
+	default:
+		break;
+	}
 
 	//上次本地单号
 	strcpy(order.OrigClOrdID, order.ClOrdID);
@@ -370,19 +393,49 @@ int Worker::ReplaceOrder(ORDER& order)
 	//Symbol
 	//pBody->SetFieldValue(FIELD::Symbol, order.Symbol);
 
+	//订单有效期
+	pBody->SetFieldValue(FIELD::TimeInForce, order.TimeInForce);
+	switch (order.TimeInForce[0])
+	{
+	case _T('0')://Day
+		break;
+	case _T('1')://Good Till Cancel (GTC)
+		break;
+	case _T('3')://Fill and Kill
+		pBody->SetFieldValue(FIELD::MinQty, order.MinQty);
+		break;
+	case _T('6')://Good Till Date
+		pBody->SetFieldValue(FIELD::ExpireDate, order.ExpireDate);
+		break;
+	default:
+		break;
+	}
+
+	//ManualOrderIndicator
+	pBody->SetFieldValue(FIELD::ManualOrderIndicator, "Y");
+
 	//TransactTime (UTC format YYYYMMDD-HH:MM:SS.sss)
 	TCHAR szTransactTime[64];
 	_stprintf_s(szTransactTime, _countof(szTransactTime), _T("%d%02d%02d-%02d:%02d:%02d.%03d"), st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
 	pBody->SetFieldValue(FIELD::TransactTime, szTransactTime); 
 
-	//ManualOrderIndicator
-	pBody->SetFieldValue(FIELD::ManualOrderIndicator, "Y");
-
 	//SecurityDesc
 	pBody->SetFieldValue(FIELD::SecurityDesc, order.SecurityDesc);
 
 	//SecurityType
-	pBody->SetFieldValue(FIELD::SecurityDesc, order.SecurityType);
+	pBody->SetFieldValue(FIELD::SecurityType, order.SecurityType);
+
+	//The type of business conducted. 0=Customer 1=Firm 
+	pBody->SetFieldValue(FIELD::CustomerOrFirm, _T("1"));
+
+	//MaxShow 冰山单里的最大显示数量，这里非0才添加该字段
+	if (atoi(order.MaxShow) != 0)
+	{
+		pBody->SetFieldValue(FIELD::MaxShow, order.MaxShow);
+	}
+
+	//CtiCode TODO: 不是很清楚有什么用
+	pBody->SetFieldValue(FIELD::CtiCode, _T("1")); 
 
 	//原始本地单号
 	pBody->SetFieldValue(FIELD::CorrelationClOrdID, order.CorrelationClOrdID);
@@ -433,6 +486,7 @@ void Worker::ExecReport(const IMessage* pMsg)
 	strcpy(excReport.CorrelationClOrdID, pBody->GetFieldValueDefault(FIELD::CorrelationClOrdID, "") );
 	strcpy(excReport.OrderID, pBody->GetFieldValueDefault(FIELD::OrderID, "") );
 	strcpy(excReport.SecurityDesc, pBody->GetFieldValueDefault(FIELD::SecurityDesc, "") );
+	strcpy(excReport.SecurityType, pBody->GetFieldValueDefault(FIELD::SecurityType, "") );
 	strcpy(excReport.Side, pBody->GetFieldValueDefault(FIELD::Side, "") );
 	strcpy(excReport.OrderQty, pBody->GetFieldValueDefault(FIELD::OrderQty, "") );
 	strcpy(excReport.MinQty, pBody->GetFieldValueDefault(FIELD::MinQty, "") );
@@ -545,9 +599,6 @@ int Worker::Quote(ORDER& order)
 	IMessage* pMsg = CreateMessage("FIX.4.2", "R");
 	HSFixMsgBody* pBody = pMsg->GetMsgBody();
 
-	//TODO:暂时不清楚要放什么字段。Unique account identifier. 
-	pBody->SetFieldValue(FIELD::Account, _T("Shengsd"));
-
 	SYSTEMTIME st;
 	GetSystemTime(&st);
 	char szQuoteReqID[21] = {0};
@@ -565,19 +616,29 @@ int Worker::Quote(ORDER& order)
 		if (pRecord)
 		{
 			pRecord->SetFieldValue(FIELD::Symbol, order.Symbol);
-			pRecord->SetFieldValue(FIELD::OrderQty, order.OrderQty);
-			pRecord->SetFieldValue(FIELD::Side, order.Side);
-			//TransactTime (UTC format YYYYMMDD-HH:MM:SS.sss)
-			TCHAR szTransactTime[64];
-			_stprintf_s(szTransactTime, _countof(szTransactTime), _T("%d%02d%02d-%02d:%02d:%02d.%03d"), st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
-			pRecord->SetFieldValue(FIELD::TransactTime, szTransactTime); 
+
+			if (order.Side[0] == '1' || order.Side[0] == '2')
+			{
+				pRecord->SetFieldValue(FIELD::Side, order.Side);
+				//When tag 54-Side = 1 (Buy) or 2 (Sell), this tag must be present and = 1 for tradable.
+				pRecord->SetFieldValue(FIELD::QuoteType, "1");
+				pRecord->SetFieldValue(FIELD::OrderQty, order.OrderQty);
+			}
+			else if (order.Side[0] == '8')//(Cross)
+			{
+				pRecord->SetFieldValue(FIELD::Side, order.Side);
+			}
+
+			//TransactTime (UTC format YYYYMMDD-HH:MM:SS.sss) 非必须
+			//TCHAR szTransactTime[64];
+			//_stprintf_s(szTransactTime, _countof(szTransactTime), _T("%d%02d%02d-%02d:%02d:%02d.%03d"), st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
+			//pRecord->SetFieldValue(FIELD::TransactTime, szTransactTime); 
+			
 			pRecord->SetFieldValue(FIELD::SecurityDesc, order.SecurityDesc);
+
 			pRecord->SetFieldValue(FIELD::SecurityType, order.SecurityType);
-			//When tag 54-Side = 1 (Buy) or 2 (Sell), this tag must be present and = 1 for tradable.
-			pRecord->SetFieldValue(FIELD::QuoteType, "1");
 		}
 	}
-
 
 	//ManualOrderIndicator Y=manual N=automated
 	pBody->SetFieldValue(FIELD::ManualOrderIndicator, _T("Y")); 
@@ -602,7 +663,6 @@ int Worker::Quote(ORDER& order)
 	}
 
 	WriteLog(LOG_INFO, "[Worker::Quote]: Quote Sent");
-
 	return STATUS_SUCCESS;
 }
 
@@ -777,6 +837,7 @@ void Worker::ExtractOrderFromExcReport( ORDER& order, const EXCREPORT& excReport
 	strcpy(order.StopPx, excReport.StopPx);
 	strcpy(order.TimeInForce, excReport.TimeInForce);
 	strcpy(order.ExpireDate, excReport.ExpireDate);
+	strcpy(order.SecurityType, excReport.SecurityType);
 }
 
 BOOL Worker::GetOrderByClOrderID(const CString csClOrderID, ORDER& order)
@@ -801,7 +862,11 @@ UINT Worker::startMktDt()
 {
 	WriteLog(LOG_INFO, "MDP3.0 Engine Starting, please wait...");
 	//WriteLog(LOG_ERROR, "%s", szConfigPath);
-	m_fLog.open("mfc.log", std::ios::out | std::ios::binary | std::ios::trunc);
+	if (_access(".\\CME", 0) != 0)
+	{
+		_mkdir(".\\CME");
+	}
+	m_fLog.open(".\\CME\\mfc.log", std::ios::out | std::ios::binary | std::ios::trunc);
 	if (!m_fLog.is_open())
 	{
 		WriteLog(LOG_ERROR, "Open mfc.log failed\n");
@@ -973,6 +1038,7 @@ void Worker::OnUpdate(MDPFieldMap* pFieldMap)
 	m_fLog << "[OnUpdate]: SecurityID=" << inst.SecurityID << ", Symbol=" << inst.Symbol << ", SecurityExchange=" << inst.SecurityExchange
 				<< ", Asset=" << inst.Asset << ", SecurityType=" << inst.SecurityType << ", SecurityTradingStatus=" << inst.SecurityTradingStatus << ", Action=" << action << ", " << std::endl;
 	m_mapSecurityID2Inst[inst.SecurityID] = inst;
+
 }
 
 int Worker::GetInstrumentBySecurityID(const int securityID, Instrument& inst)
