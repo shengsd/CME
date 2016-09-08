@@ -410,7 +410,7 @@ namespace MDP
 				m_socketToSocketInfo[result] = pSocketInfoIB;
 			}
 		}
-		catch (std::exception& e)
+		catch (std::exception& )
 		{
 			//m_fLog << e.what() << std::endl;
 			//g_lpfnWriteLog(LOG_WARNING, "%s\n", e.what());
@@ -462,7 +462,7 @@ namespace MDP
 						m_onRetransmission = true;
 					}
 				}
-				catch (std::exception& e)
+				catch (std::exception& )
 				{
 					//m_fLog << e.what() << std::endl;
 					//g_lpfnWriteLog(LOG_WARNING, "%s\n", e.what());
@@ -507,7 +507,7 @@ namespace MDP
 				m_socketToSocketInfo[result] = pSocketInfoNA;
 			}
 		}
-		catch (std::exception& e)
+		catch (std::exception& )
 		{
 			//m_fLog << e.what() << std::endl;
 			//g_lpfnWriteLog(LOG_WARNING, "[Channel ID]:%d, [doConnectToInstDef]:%s\n", c, e.what());
@@ -555,7 +555,7 @@ namespace MDP
 			}
 
 		}
-		catch (std::exception& e)
+		catch (std::exception& )
 		{
 			//m_fLog << e.what() << std::endl;
 			//g_lpfnWriteLog(LOG_WARNING, "[Channel ID]:%d, [doConnectToSnapShot]:%s\n", c, e.what());

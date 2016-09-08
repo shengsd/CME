@@ -9,6 +9,8 @@ Worker::Worker(void)
 	m_pTradeSession = NULL;
 	m_hEventReadyToTrade = CreateEvent(NULL, TRUE, FALSE, NULL);
 	InitializeCriticalSection(&m_OrderLock);
+	m_pfAuditTrail = fopen("Audit Trail.txt","w+");
+	//m_MessageLinkID = 0;
 }
 
 Worker::~Worker(void)
@@ -16,6 +18,7 @@ Worker::~Worker(void)
 	if (m_hEventReadyToTrade)
 		CloseHandle(m_hEventReadyToTrade);
 	DeleteCriticalSection(&m_OrderLock);
+	fclose(m_pfAuditTrail);
 }
 
 void Worker::WriteLog(int nLevel, const TCHAR *szFormat, ...)
@@ -51,8 +54,23 @@ BOOL Worker::StartTrade()
 	TCHAR cfgPath[MAX_PATH];
 	GetModuleFileName(NULL, cfgPath, MAX_PATH);
 	strcpy(strrchr(cfgPath, '\\'), "\\FIX_CME.ini");
-
+	//strcpy(strrchr(cfgPath, '\\'), "\\CLIENT.CFG");
 	WriteLog(LOG_INFO, _T("%s"), cfgPath);
+	/*
+	// 创建会话工厂
+	ISessionFactory* lpSessionFactory=CreateSessionFactory();
+	if(!lpSessionFactory)
+	{
+	WriteLog(LOG_ERROR, "CreateSessionFactory() error...exit\n");
+	return FALSE;
+	}
+	// 初始化配置文件中配置的所有会话
+	int ret = lpSessionFactory->InitSessions(cfgPath, this, 10);
+	if(ret) {
+	WriteLog(LOG_ERROR, "InitSessions() error...exit\n");
+	return FALSE;
+	}
+	*/
 	//启动HSfixEngine
 	if(EngnInit((char*)cfgPath, this) != 0)
 	{
@@ -129,10 +147,10 @@ int Worker::EnterOrder(ORDER& order)
 {
 	//TODO:
 	//ORDER中可能信息不足，需要从合约列表中获取完整信息
-
 	strcpy(order.MsgType, "D");
 
 	IMessage* pMsg = CreateMessage("FIX.4.2", "D");
+	HSFixHeader *pHeader = pMsg->GetHeader();
 	HSFixMsgBody* pBody = pMsg->GetMsgBody();
 
 	//TODO:暂时不清楚要放什么字段。Unique account identifier. 
@@ -213,11 +231,12 @@ int Worker::EnterOrder(ORDER& order)
 
 	//期货还是期权 FUT=Future OPT=Option
 	pBody->SetFieldValue(FIELD::SecurityType, order.SecurityType);
-	
+
 	//The type of business conducted. 0=Customer 1=Firm 
 	pBody->SetFieldValue(FIELD::CustomerOrFirm, _T("1"));
 
 	//MaxShow 冰山单里的最大显示数量，这里非0才添加该字段
+	//Not available for CME Interest Rate Optons
 	if (atoi(order.MaxShow) != 0)
 	{
 		pBody->SetFieldValue(FIELD::MaxShow, order.MaxShow);
@@ -225,6 +244,8 @@ int Worker::EnterOrder(ORDER& order)
 
 	//CtiCode TODO: 不是很清楚有什么用
 	pBody->SetFieldValue(FIELD::CtiCode, _T("1")); 
+
+
 
 	//发送消息
 	if(m_pTradeSession)
@@ -258,10 +279,15 @@ int Worker::CancelOrder(ORDER& order)
 	strcpy(order.MsgType, "F");
 
 	IMessage* pMsg = CreateMessage("FIX.4.2", "F");
+	HSFixHeader *pHeader = pMsg->GetHeader();
 	HSFixMsgBody* pBody = pMsg->GetMsgBody();
 
 	//Unique account identifier. TODO:暂时不清楚
 	pBody->SetFieldValue(FIELD::Account, _T("Shengsd"));
+
+	//上次本地单号
+	strcpy(order.OrigClOrdID, order.ClOrdID);
+	pBody->SetFieldValue(FIELD::OrigClOrdID, order.OrigClOrdID);
 
 	SYSTEMTIME st;
 	GetSystemTime(&st);
@@ -271,10 +297,6 @@ int Worker::CancelOrder(ORDER& order)
 
 	//主场单号
 	pBody->SetFieldValue(FIELD::OrderID, order.OrderID);
-
-	//上次本地单号
-	strcpy(order.OrigClOrdID, order.ClOrdID);
-	pBody->SetFieldValue(FIELD::OrigClOrdID, order.OrigClOrdID);
 
 	//买卖方向
 	pBody->SetFieldValue(FIELD::Side, order.Side);
@@ -320,7 +342,7 @@ int Worker::CancelOrder(ORDER& order)
 	ORDER oldOrder = {0};
 	if (GetOrderByClOrderID(order.OrigClOrdID, oldOrder))
 	{
-		oldOrder.OrdStatus[0] = '-';
+		oldOrder.OrdStatus[0] = 'D';
 		UpdateOrder(oldOrder);
 	}
 	else
@@ -341,10 +363,15 @@ int Worker::ReplaceOrder(ORDER& order)
 	strcpy(order.MsgType, "G");
 
 	IMessage* pMsg = CreateMessage("FIX.4.2", "G");
+	HSFixHeader* pHeader = pMsg->GetHeader();
 	HSFixMsgBody* pBody = pMsg->GetMsgBody();
 
 	//Unique account identifier. TODO:暂时不清楚
 	pBody->SetFieldValue(FIELD::Account, _T("Shengsd"));
+
+	//上次本地单号
+	strcpy(order.OrigClOrdID, order.ClOrdID);
+	pBody->SetFieldValue(FIELD::OrigClOrdID, order.OrigClOrdID);
 
 	SYSTEMTIME st;
 	GetSystemTime(&st);
@@ -357,7 +384,7 @@ int Worker::ReplaceOrder(ORDER& order)
 
 	//HandInst
 	pBody->SetFieldValue(FIELD::HandlInst, "1");
-	
+
 	//改单数量
 	pBody->SetFieldValue(FIELD::OrderQty, order.OrderQty);
 
@@ -382,10 +409,6 @@ int Worker::ReplaceOrder(ORDER& order)
 	default:
 		break;
 	}
-
-	//上次本地单号
-	strcpy(order.OrigClOrdID, order.ClOrdID);
-	pBody->SetFieldValue(FIELD::OrigClOrdID, order.OrigClOrdID);
 
 	//买卖方向
 	pBody->SetFieldValue(FIELD::Side, order.Side);
@@ -440,6 +463,9 @@ int Worker::ReplaceOrder(ORDER& order)
 	//原始本地单号
 	pBody->SetFieldValue(FIELD::CorrelationClOrdID, order.CorrelationClOrdID);
 
+	//Indicates whether the cancel/replace supports IFM.认证中没有选择支持
+	pBody->SetFieldValue(FIELD::OFMOverride, "N");
+
 	//发送消息  //即时失败也不改回被改订单
 	if(m_pTradeSession)
 	{
@@ -461,7 +487,7 @@ int Worker::ReplaceOrder(ORDER& order)
 	ORDER oldOrder = {0};
 	if (GetOrderByClOrderID(order.OrigClOrdID, oldOrder))
 	{
-		oldOrder.OrdStatus[0] = '-';
+		oldOrder.OrdStatus[0] = 'D';
 		UpdateOrder(oldOrder);
 	}
 
@@ -477,7 +503,62 @@ void Worker::ExecReport(const IMessage* pMsg)
 {
 	ORDER order = {0};
 	EXCREPORT excReport = {0};
+	HSFixHeader* pHeader = pMsg->GetHeader();
 	HSFixMsgBody* pBody = pMsg->GetMsgBody();
+
+	//Audit Trail begin
+	char szTargetCompID[10] = {0};
+	char szSessionID[4] = {0};
+	char szFirmID[4] = {0};
+	strcpy(szTargetCompID, pHeader->GetFieldValueDefault(FIELD::TargetCompID, ""));
+	strncpy(szSessionID, szTargetCompID, 3);//7
+	strncpy(szFirmID, szTargetCompID+3, 3);//8
+	//InterlockedIncrement(&m_MessageLinkID);//14
+
+	if (m_pfAuditTrail)
+	{
+		fprintf(m_pfAuditTrail, ",");//1
+		fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::TransactTime, ""));//2
+		fprintf(m_pfAuditTrail, "FROM CME,");//3
+		fprintf(m_pfAuditTrail, "%s,", pHeader->GetFieldValueDefault(FIELD::TargetSubID, ""));//4
+		fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::SelfMatchPreventionID, ""));//5
+		fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::Account, ""));//6
+		fprintf(m_pfAuditTrail, "%s,", szSessionID);//7
+		fprintf(m_pfAuditTrail, "%s,", szFirmID);//8
+		fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::ManualOrderIndicator, ""));//9
+		fprintf(m_pfAuditTrail, "%s/%s,", pHeader->GetFieldValueDefault(FIELD::MsgType, ""), pBody->GetFieldValueDefault(FIELD::OrdStatus, ""));//10
+		fprintf(m_pfAuditTrail, ",,");//11,12
+		fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::ExecID, ""));//13
+		//fprintf(m_pfAuditTrail, "%l,", m_MessageLinkID);//14
+		fprintf(m_pfAuditTrail, ",");//14
+		fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::CorrelationClOrdID, ""));//15
+		fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::SecondaryExecID, ""));//16
+		fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::SecurityDesc, ""));//17
+		fprintf(m_pfAuditTrail, "%s,", pHeader->GetFieldValueDefault(FIELD::SenderSubID, ""));//18
+		fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::ClOrdID, ""));//19
+		fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::OrderID, ""));//20
+		fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::Side, ""));//21
+		fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::Quantity, ""));//22
+		fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::Price, ""));//23
+		fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::StopPx, ""));//24
+		fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::OrdType, ""));//25
+		fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::TimeInForce, ""));//26
+		fprintf(m_pfAuditTrail, ",");//27
+		fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::MaxShow, ""));//28
+		fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::MinQty, ""));//29
+		fprintf(m_pfAuditTrail, ",");//30
+		fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::LastPx, ""));//31
+		fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::LastQty, ""));//32
+		fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::CumQty, ""));//33
+		fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::LeavesQty, ""));//34
+		fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::AggressorIndicator, ""));//35
+		fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::ExecRestatementReason, ""));//36
+		fprintf(m_pfAuditTrail, "%s:%s,", pBody->GetFieldValueDefault(FIELD::OrdRejReason, ""), pBody->GetFieldValueDefault(FIELD::Text, ""));//37
+		fprintf(m_pfAuditTrail, ",");//38
+		fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::CrossID, ""));//39
+		fprintf(m_pfAuditTrail, "\n");
+	}
+	//Audit Trail end
 
 	strcpy(excReport.ExecType, pBody->GetFieldValueDefault(FIELD::ExecType, "") );//回报类型
 	strcpy(excReport.OrdStatus, pBody->GetFieldValueDefault(FIELD::OrdStatus, "") );//订单状态
@@ -502,7 +583,7 @@ void Worker::ExecReport(const IMessage* pMsg)
 
 	//Order Status Request Acknowledgment
 	//订单状态反馈
-	if ( 'I' == excReport.ExecType[0] )
+	if ( 'I' ==  excReport.ExecType[0])
 	{
 		//If the Mass Order Status Request is accepted, but no orders are found
 		if ( 'U' == excReport.OrdStatus[0] )
@@ -514,7 +595,7 @@ void Worker::ExecReport(const IMessage* pMsg)
 
 		//提取订单信息
 		ExtractOrderFromExcReport(order, excReport);
-		
+
 		//保存挂单信息
 		AddOrder(order);
 	}
@@ -564,7 +645,44 @@ void Worker::CancelReject(const IMessage* pMsg)
 {
 	ORDER order = {0};
 	EXCREPORT excReport = {0};
+	HSFixHeader* pHeader = pMsg->GetHeader();
 	HSFixMsgBody* pBody = pMsg->GetMsgBody();
+
+	//Audit Trail begin
+	char szTargetCompID[10] = {0};
+	char szSessionID[4] = {0};
+	char szFirmID[4] = {0};
+	strcpy(szTargetCompID, pHeader->GetFieldValueDefault(FIELD::TargetCompID, ""));
+	strncpy(szSessionID, szTargetCompID, 3);//7
+	strncpy(szFirmID, szTargetCompID+3, 3);//8
+	//InterlockedIncrement(&m_MessageLinkID);//14
+
+	if (m_pfAuditTrail)
+	{
+		fprintf(m_pfAuditTrail, ",");//1
+		fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::TransactTime, ""));//2
+		fprintf(m_pfAuditTrail, "FROM CME,");//3
+		fprintf(m_pfAuditTrail, "%s,", pHeader->GetFieldValueDefault(FIELD::TargetSubID, ""));//4
+		fprintf(m_pfAuditTrail, ",");//5
+		fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::Account, ""));//6
+		fprintf(m_pfAuditTrail, "%s,", szSessionID);//7
+		fprintf(m_pfAuditTrail, "%s,", szFirmID);//8
+		fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::ManualOrderIndicator, ""));//9
+		fprintf(m_pfAuditTrail, "%s,", pHeader->GetFieldValueDefault(FIELD::MsgType, ""));//10
+		fprintf(m_pfAuditTrail, ",,");//11,12
+		fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::ExecID, ""));//13
+		//fprintf(m_pfAuditTrail, "%l,", m_MessageLinkID);//14
+		fprintf(m_pfAuditTrail, ",");//14
+		fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::CorrelationClOrdID, ""));//15
+		fprintf(m_pfAuditTrail, ",,");//16,17
+		fprintf(m_pfAuditTrail, "%s,", pHeader->GetFieldValueDefault(FIELD::SenderSubID, ""));//18
+		fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::ClOrdID, ""));//19
+		fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::OrderID, ""));//20
+		fprintf(m_pfAuditTrail, ",,,,,,,,,,,,,,,,");//21~36
+		fprintf(m_pfAuditTrail, "%s:%s,", pBody->GetFieldValueDefault(FIELD::OrdRejReason, ""), pBody->GetFieldValueDefault(FIELD::Text, ""));//37
+		fprintf(m_pfAuditTrail, "\n");
+	}
+	//Audit Trail end
 
 	//本地单号
 	strcpy(excReport.ClOrdID, pBody->GetFieldValueDefault(FIELD::ClOrdID, "") );
@@ -597,6 +715,7 @@ int Worker::Quote(ORDER& order)
 	strcpy(order.MsgType, "R");
 
 	IMessage* pMsg = CreateMessage("FIX.4.2", "R");
+	HSFixHeader* pHeader = pMsg->GetHeader();
 	HSFixMsgBody* pBody = pMsg->GetMsgBody();
 
 	SYSTEMTIME st;
@@ -633,7 +752,7 @@ int Worker::Quote(ORDER& order)
 			//TCHAR szTransactTime[64];
 			//_stprintf_s(szTransactTime, _countof(szTransactTime), _T("%d%02d%02d-%02d:%02d:%02d.%03d"), st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
 			//pRecord->SetFieldValue(FIELD::TransactTime, szTransactTime); 
-			
+
 			pRecord->SetFieldValue(FIELD::SecurityDesc, order.SecurityDesc);
 
 			pRecord->SetFieldValue(FIELD::SecurityType, order.SecurityType);
@@ -668,14 +787,48 @@ int Worker::Quote(ORDER& order)
 
 void Worker::QuoteAck(const IMessage* pMsg)
 {
-	//HSFixMsgBody* pBody = pMsg->GetMsgBody();
+	HSFixHeader* pHeader = pMsg->GetHeader();
+	HSFixMsgBody* pBody = pMsg->GetMsgBody();
+
+	//Audit Trail begin
+	char szTargetCompID[10] = {0};
+	char szSessionID[4] = {0};
+	char szFirmID[4] = {0};
+	strcpy(szTargetCompID, pHeader->GetFieldValueDefault(FIELD::TargetCompID, ""));
+	strncpy(szSessionID, szTargetCompID, 3);//7
+	strncpy(szFirmID, szTargetCompID+3, 3);//8
+	//InterlockedIncrement(&m_MessageLinkID);//14
+
+	if (m_pfAuditTrail)
+	{
+		fprintf(m_pfAuditTrail, ",");//1
+		fprintf(m_pfAuditTrail, "%s,", pHeader->GetFieldValueDefault(FIELD::SendingTime, ""));//2
+		fprintf(m_pfAuditTrail, "FROM CME,");//3
+		fprintf(m_pfAuditTrail, "%s,", pHeader->GetFieldValueDefault(FIELD::TargetSubID, ""));//4
+		fprintf(m_pfAuditTrail, ",,");//5,6
+		fprintf(m_pfAuditTrail, "%s,", szSessionID);//7
+		fprintf(m_pfAuditTrail, "%s,", szFirmID);//8
+		fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::ManualOrderIndicator, ""));//9
+		fprintf(m_pfAuditTrail, "%s/%s,", pHeader->GetFieldValueDefault(FIELD::MsgType, ""), pBody->GetFieldValueDefault(FIELD::QuoteStatus, ""));//10
+		fprintf(m_pfAuditTrail, ",,,");//11,12,13
+		//fprintf(m_pfAuditTrail, "%l,", m_MessageLinkID);//14
+		fprintf(m_pfAuditTrail, ",");//14
+		fprintf(m_pfAuditTrail, ",,,");//15,16,17
+		fprintf(m_pfAuditTrail, "%s,", pHeader->GetFieldValueDefault(FIELD::SenderSubID, ""));//18
+		fprintf(m_pfAuditTrail, ",,,,,,,,,,,,,,,,,,");//19~36
+		fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::QuoteRejectReason, ""));//37
+		fprintf(m_pfAuditTrail, ",,");//38,39
+		fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::QuoteReqID, ""));//40
+		fprintf(m_pfAuditTrail, "\n");
+	}
+	//Audit Trail end
 }
 
 void Worker::AddOrder(ORDER& order)
 {
 	//订单以主场单号为主键，必须确保有主场单号
 	//if ( 0 == strcmp(order.OrderID, "") )
-		//return ;
+	//return ;
 
 	//保存
 	EnterCriticalSection(&m_OrderLock);
@@ -781,7 +934,7 @@ void Worker::UpdateOrder(ORDER& order)
 
 	switch (order.OrdStatus[0])
 	{
-	case '-'://被改、撤
+	case 'D'://被改、撤
 		m_pDlg->m_lvOrderInfoList.SetItemText(nIndex, OrderInfo_Column_Status, _T("Disabled"));
 		break;
 	case '0'://Order Creation
@@ -966,7 +1119,7 @@ void Worker::OnUpdate(MDPFieldMap* pFieldMap)
 	{
 		pField->getArray(0, inst.SecurityExchange, 0, pField->length());
 	}
-	
+
 	if (pField = pFieldMap->getField(FIELD::Asset))//外部商品
 	{
 		pField->getArray(0, inst.Asset, 0, pField->length());
@@ -1036,7 +1189,7 @@ void Worker::OnUpdate(MDPFieldMap* pFieldMap)
 	}
 
 	m_fLog << "[OnUpdate]: SecurityID=" << inst.SecurityID << ", Symbol=" << inst.Symbol << ", SecurityExchange=" << inst.SecurityExchange
-				<< ", Asset=" << inst.Asset << ", SecurityType=" << inst.SecurityType << ", SecurityTradingStatus=" << inst.SecurityTradingStatus << ", Action=" << action << ", " << std::endl;
+		<< ", Asset=" << inst.Asset << ", SecurityType=" << inst.SecurityType << ", SecurityTradingStatus=" << inst.SecurityTradingStatus << ", Action=" << action << ", " << std::endl;
 	m_mapSecurityID2Inst[inst.SecurityID] = inst;
 
 }
@@ -1057,68 +1210,64 @@ void Worker::onMarketData(MDPFieldMap* pMDPFieldMap, const int templateID)
 	switch (templateID)
 	{
 	case 4://ChannelReset4
-		m_fLog << "[onMarketData]: Received ChannelReset4\n" << std::endl;
+		m_fLog << "[onMarketData]: Received ChannelReset4" << std::endl;
 		ChannelReset(pMDPFieldMap);
 		break;
 	case 12://AdminHeartbeat12
-		m_fLog << "[onMarketData]: Received AdminHeartbeat12\n" << std::endl;
+		m_fLog << "[onMarketData]: Received AdminHeartbeat12" << std::endl;
 		break;
 	case 27://MDInstrumentDefinitionFuture27
-		m_fLog << "[onMarketData]: Received MDInstrumentDefinitionFuture27\n";
+		m_fLog << "[onMarketData]: Received MDInstrumentDefinitionFuture27" << std::endl;
 		OnUpdate(pMDPFieldMap);
-		m_fLog << std::endl;
 		break;
 	case 29://MDInstrumentDefinitionSpread29
-		m_fLog << "[onMarketData]: Received MDInstrumentDefinitionSpread29\n";
+		m_fLog << "[onMarketData]: Received MDInstrumentDefinitionSpread29" << std::endl;
 		OnUpdate(pMDPFieldMap);
-		m_fLog << std::endl;
 		break;
 	case 30://SecurityStatus30
-		m_fLog << "[onMarketData]: Received SecurityStatus30\n" << std::endl;
+		m_fLog << "[onMarketData]: Received SecurityStatus30" << std::endl;
 		SecurityStatus(pMDPFieldMap);
 		break;
 	case 41://MDInstrumentDefinitionOption41
-		m_fLog << "[onMarketData]: Received MDInstrumentDefinitionOption41\n";
+		m_fLog << "[onMarketData]: Received MDInstrumentDefinitionOption41" << std::endl;
 		OnUpdate(pMDPFieldMap);
-		m_fLog << std::endl;
 		break;
 	case 32://MDIncrementalRefreshBook32
-		m_fLog << "[onMarketData]: Received MDIncrementalRefreshBook32\n";
+		m_fLog << "[onMarketData]: Received MDIncrementalRefreshBook32" << std::endl;
 		UpdateBook(pMDPFieldMap);
-		m_fLog << std::endl;
 		break;
 	case 33://MDIncrementalRefreshDailyStatistics33
-		m_fLog << "[onMarketData]: Received MDIncrementalRefreshDailyStatistics33\n" << std::endl;
+		m_fLog << "[onMarketData]: Received MDIncrementalRefreshDailyStatistics33" << std::endl;
 		UpdateDailyStatistics(pMDPFieldMap);
 		break;
 	case 34://MDIncrementalRefreshLimitsBanding34
-		m_fLog << "[onMarketData]: Received MDIncrementalRefreshLimitsBanding34\n" << std::endl;
+		m_fLog << "[onMarketData]: Received MDIncrementalRefreshLimitsBanding34" << std::endl;
 		break;
 	case 35://MDIncrementalRefreshSessionStatistics35
-		m_fLog << "[onMarketData]: Received MDIncrementalRefreshSessionStatistics35\n" << std::endl;
+		m_fLog << "[onMarketData]: Received MDIncrementalRefreshSessionStatistics35" << std::endl;
 		UpdateSessionStatistics(pMDPFieldMap);
 		break;
 	case 36://MDIncrementalRefreshTrade36
-		m_fLog << "[onMarketData]: Received MDIncrementalRefreshTrade36\n" << std::endl;
+		m_fLog << "[onMarketData]: Received MDIncrementalRefreshTrade36" << std::endl;
 		UpdateTradeSummary(pMDPFieldMap);
 		break;
 	case 37://MDIncrementalRefreshVolume37
-		m_fLog << "[onMarketData]: Received MDIncrementalRefreshVolume37\n" << std::endl;
+		m_fLog << "[onMarketData]: Received MDIncrementalRefreshVolume37" << std::endl;
 		UpdateVolume(pMDPFieldMap);
 		break;
 	case 38://SnapshotFullRefresh38
-		m_fLog << "[onMarketData]: Received SnapshotFullRefresh38\n" << std::endl;
+		m_fLog << "[onMarketData]: Received SnapshotFullRefresh38" << std::endl;
 		SnapShot(pMDPFieldMap);
 		break;
 	case 39://QuoteRequest39
-		m_fLog << "[onMarketData]: Received QuoteRequest39\n" << std::endl;
+		m_fLog << "[onMarketData]: Received QuoteRequest39" << std::endl;
 		break;
 	case 42://MDIncrementalRefreshTradeSummary42
-		m_fLog << "[onMarketData]: Received MDIncrementalRefreshTradeSummary42\n" << std::endl;
+		m_fLog << "[onMarketData]: Received MDIncrementalRefreshTradeSummary42" << std::endl;
 		UpdateTradeSummary(pMDPFieldMap);
 		break;
 	default:
-		m_fLog << "[onMarketData]: Received Unknown Message ID:" << templateID << std::endl << std::endl;
+		m_fLog << "[onMarketData]: Received Unknown Message ID:" << templateID << std::endl;
 		break;
 	}
 }
@@ -2599,12 +2748,189 @@ int FUNCTION_CALL_MODE Worker::ToApp( IMessage * lpMsg, const ISessionID * lpSes
 	//WriteLog(LOG_INFO, "[Worker::ToApp]: called.\n");
 	char szLastMsgSeqNumProcessed[9] = {0};
 	ISession* pSession = GetSessionByID((ISessionID *)lpSessionID);
+	const char* msgType = lpMsg->GetMessageType();
 	HSFixHeader *pHeader = lpMsg->GetHeader();
-	HSFixMsgBody *body = lpMsg->GetMsgBody();
+	HSFixMsgBody *pBody = lpMsg->GetMsgBody();
 	pHeader->SetFieldValue(FIELD::SenderSubID, "HSUFOs7");
 	pHeader->SetFieldValue(FIELD::TargetSubID, "G");
 	pHeader->SetFieldValue(FIELD::SenderLocationID, "CN");
 	pHeader->SetFieldValue(FIELD::LastMsgSeqNumProcessed, _ltoa(pSession->getExpectedTargetNum() - 1, szLastMsgSeqNumProcessed, 10 ) );
+
+	if (strncmp(msgType, "D", 1) == 0)
+	{
+		//Audit Trail
+		char szSenderCompID[10] = {0};
+		char szSessionID[4] = {0};
+		char szFirmID[4] = {0};
+		strcpy(szSenderCompID, pHeader->GetFieldValueDefault(FIELD::SenderCompID, ""));
+		strncpy(szSessionID, szSenderCompID, 3);//7
+		strncpy(szFirmID, szSenderCompID+3, 3);//8
+		//InterlockedIncrement(&m_MessageLinkID);//14
+
+		if (m_pfAuditTrail)
+		{
+			fprintf(m_pfAuditTrail, "%s,", pHeader->GetFieldValueDefault(FIELD::SendingTime, ""));//1
+			fprintf(m_pfAuditTrail, ",");//2
+			fprintf(m_pfAuditTrail, "TO CME,");//3
+			fprintf(m_pfAuditTrail, "%s,", pHeader->GetFieldValueDefault(FIELD::SenderSubID, ""));//4
+			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::SelfMatchPreventionID, ""));//5
+			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::Account, ""));//6
+			fprintf(m_pfAuditTrail, "%s,", szSessionID);//7
+			fprintf(m_pfAuditTrail, "%s,", szFirmID);//8
+			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::ManualOrderIndicator, ""));//9
+			fprintf(m_pfAuditTrail, "%s,", pHeader->GetFieldValueDefault(FIELD::MsgType, ""));//10
+			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::CtiCode, ""));//11
+			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::CustomerOrFirm, ""));//12
+			fprintf(m_pfAuditTrail, ",");//13
+			//fprintf(m_pfAuditTrail, "%l,", m_MessageLinkID);//14
+			fprintf(m_pfAuditTrail, ",");//14
+			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::CorrelationClOrdID, ""));//15
+			fprintf(m_pfAuditTrail, ",");//16
+			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::SecurityDesc, ""));//17
+			fprintf(m_pfAuditTrail, "%s,", pHeader->GetFieldValueDefault(FIELD::TargetSubID, ""));//18
+			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::ClOrdID, ""));//19
+			fprintf(m_pfAuditTrail, ",");//20
+			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::Side, ""));//21
+			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::Quantity, ""));//22
+			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::Price, ""));//23
+			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::StopPx, ""));//24
+			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::OrdType, ""));//25
+			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::TimeInForce, ""));//26
+			fprintf(m_pfAuditTrail, ",");//27
+			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::MaxShow, ""));//28
+			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::MinQty, ""));//29
+			fprintf(m_pfAuditTrail, "%s,", pHeader->GetFieldValueDefault(FIELD::SenderLocationID, ""));//30
+			fprintf(m_pfAuditTrail, ",,,,,,,,");//31,32,33,34,35,36,37,38
+			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::CrossID, ""));//39
+			fprintf(m_pfAuditTrail, "\n");
+		}
+	}
+	else if (strncmp(msgType, "G", 1) == 0)
+	{
+		//Audit Trail
+		char szSenderCompID[10] = {0};
+		char szSessionID[4] = {0};
+		char szFirmID[4] = {0};
+		strcpy(szSenderCompID, pHeader->GetFieldValueDefault(FIELD::SenderCompID, ""));
+		strncpy(szSessionID, szSenderCompID, 3);//7
+		strncpy(szFirmID, szSenderCompID+3, 3);//8
+		//InterlockedIncrement(&m_MessageLinkID);//14
+
+		if (m_pfAuditTrail)
+		{
+			fprintf(m_pfAuditTrail, "%s,", pHeader->GetFieldValueDefault(FIELD::SendingTime, ""));//1
+			fprintf(m_pfAuditTrail, ",");//2
+			fprintf(m_pfAuditTrail, "TO CME,");//3
+			fprintf(m_pfAuditTrail, "%s,", pHeader->GetFieldValueDefault(FIELD::SenderSubID, ""));//4
+			fprintf(m_pfAuditTrail, ",");//5
+			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::Account, ""));//6
+			fprintf(m_pfAuditTrail, "%s,", szSessionID);//7
+			fprintf(m_pfAuditTrail, "%s,", szFirmID);//8
+			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::ManualOrderIndicator, ""));//9
+			fprintf(m_pfAuditTrail, "%s,", pHeader->GetFieldValueDefault(FIELD::MsgType, ""));//10
+			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::CtiCode, ""));//11
+			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::CustomerOrFirm, ""));//12
+			fprintf(m_pfAuditTrail, ",");//13
+			//fprintf(m_pfAuditTrail, "%l,", m_MessageLinkID);//14
+			fprintf(m_pfAuditTrail, ",");//14
+			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::CorrelationClOrdID, ""));//15
+			fprintf(m_pfAuditTrail, ",");//16
+			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::SecurityDesc, ""));//17
+			fprintf(m_pfAuditTrail, "%s,", pHeader->GetFieldValueDefault(FIELD::TargetSubID, ""));//18
+			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::ClOrdID, ""));//19
+			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::OrderID, ""));//20
+			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::Side, ""));//21
+			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::Quantity, ""));//22
+			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::Price, ""));//23
+			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::StopPx, ""));//24
+			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::OrdType, ""));//25
+			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::TimeInForce, ""));//26
+			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::OFMOverride, ""));//27
+			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::MaxShow, ""));//28
+			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::MinQty, ""));//29
+			fprintf(m_pfAuditTrail, "%s,", pHeader->GetFieldValueDefault(FIELD::SenderLocationID, ""));//30
+			fprintf(m_pfAuditTrail, "\n");
+		}
+	}
+	else if (strncmp(msgType, "F", 1) == 0)
+	{
+		//Audit Trail
+		char szSenderCompID[10] = {0};
+		char szSessionID[4] = {0};
+		char szFirmID[4] = {0};
+		strcpy(szSenderCompID, pHeader->GetFieldValueDefault(FIELD::SenderCompID, ""));
+		strncpy(szSessionID, szSenderCompID, 3);//7
+		strncpy(szFirmID, szSenderCompID+3, 3);//8
+		//InterlockedIncrement(&m_MessageLinkID);//14
+
+		if (m_pfAuditTrail)
+		{
+			fprintf(m_pfAuditTrail, "%s,", pHeader->GetFieldValueDefault(FIELD::SendingTime, ""));//1
+			fprintf(m_pfAuditTrail, ",");//2
+			fprintf(m_pfAuditTrail, "TO CME,");//3
+			fprintf(m_pfAuditTrail, "%s,", pHeader->GetFieldValueDefault(FIELD::SenderSubID, ""));//4
+			fprintf(m_pfAuditTrail, ",");//5
+			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::Account, ""));//6
+			fprintf(m_pfAuditTrail, "%s,", szSessionID);//7
+			fprintf(m_pfAuditTrail, "%s,", szFirmID);//8
+			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::ManualOrderIndicator, ""));//9
+			fprintf(m_pfAuditTrail, "%s,", pHeader->GetFieldValueDefault(FIELD::MsgType, ""));//10
+			fprintf(m_pfAuditTrail, ",,,");//11,12,13
+			//fprintf(m_pfAuditTrail, "%l,", m_MessageLinkID);//14
+			fprintf(m_pfAuditTrail, ",");//14
+			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::CorrelationClOrdID, ""));//15
+			fprintf(m_pfAuditTrail, ",");//16
+			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::SecurityDesc, ""));//17
+			fprintf(m_pfAuditTrail, "%s,", pHeader->GetFieldValueDefault(FIELD::TargetSubID, ""));//18
+			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::ClOrdID, ""));//19
+			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::OrderID, ""));//20
+			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::Side, ""));//21
+			fprintf(m_pfAuditTrail, ",,,,,,,,");//22,23,24,25,26,27,28,29
+			fprintf(m_pfAuditTrail, "%s,", pHeader->GetFieldValueDefault(FIELD::SenderLocationID, ""));//30
+			fprintf(m_pfAuditTrail, "\n");
+		}
+	}
+	else if (strncmp(msgType, "R", 1) == 0)
+	{
+		//Audit Trail
+		char szSenderCompID[10] = {0};
+		char szSessionID[4] = {0};
+		char szFirmID[4] = {0};
+		strcpy(szSenderCompID, pHeader->GetFieldValueDefault(FIELD::SenderCompID, ""));
+		strncpy(szSessionID, szSenderCompID, 3);//7
+		strncpy(szFirmID, szSenderCompID+3, 3);//8
+		//InterlockedIncrement(&m_MessageLinkID);//14
+		IGroup* pGroup = pBody->GetGroup(FIELD::NoRelatedSym);
+		if (pGroup)
+		{
+			IRecord* pRecord = pGroup->GetRecord(0);
+			if (pRecord && m_pfAuditTrail)
+			{
+				fprintf(m_pfAuditTrail, "%s,", pHeader->GetFieldValueDefault(FIELD::SendingTime, ""));//1
+				fprintf(m_pfAuditTrail, ",");//2
+				fprintf(m_pfAuditTrail, "TO CME,");//3
+				fprintf(m_pfAuditTrail, "%s,", pHeader->GetFieldValueDefault(FIELD::SenderSubID, ""));//4
+				fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::SelfMatchPreventionID, ""));//5
+				fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::Account, ""));//6
+				fprintf(m_pfAuditTrail, "%s,", szSessionID);//7
+				fprintf(m_pfAuditTrail, "%s,", szFirmID);//8
+				fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::ManualOrderIndicator, ""));//9
+				fprintf(m_pfAuditTrail, "%s,", pHeader->GetFieldValueDefault(FIELD::MsgType, ""));//10
+				fprintf(m_pfAuditTrail, ",,,");//11,12,13
+				//fprintf(m_pfAuditTrail, "%l,", m_MessageLinkID);//14
+				fprintf(m_pfAuditTrail, ",,,");//14,15,16
+				fprintf(m_pfAuditTrail, "%s,", pRecord->GetFieldValueDefault(FIELD::SecurityDesc, ""));//17
+				fprintf(m_pfAuditTrail, "%s,", pHeader->GetFieldValueDefault(FIELD::TargetSubID, ""));//18
+				fprintf(m_pfAuditTrail, ",,");//19,20
+				fprintf(m_pfAuditTrail, "%s,", pRecord->GetFieldValueDefault(FIELD::Side, ""));//21
+				fprintf(m_pfAuditTrail, ",,,,,,,,");//22~29
+				fprintf(m_pfAuditTrail, "%s,", pHeader->GetFieldValueDefault(FIELD::SenderLocationID, ""));//30
+				fprintf(m_pfAuditTrail, ",,,,,,,,,");//31,32,33,34,35,36,37,38,39
+				fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::QuoteReqID, ""));//40
+				fprintf(m_pfAuditTrail, "\n");
+			}
+		}
+	}
 	return 0;
 }
 
@@ -2612,6 +2938,7 @@ int FUNCTION_CALL_MODE Worker::FromAdmin( const IMessage * lpMsg , const ISessio
 {
 	const char* msgType = lpMsg->GetMessageType();
 	HSFixHeader* pHeader = lpMsg->GetHeader();
+	HSFixMsgBody* pBody = lpMsg->GetMsgBody();
 	//	strcpy(m_lastSeqNumReceived, pHeader->GetFieldValue(FIELD::MsgSeqNum));
 
 	if (strncmp(msgType, "A", 1) == 0)			//CME Globex发来的登陆确认消息
@@ -2643,6 +2970,37 @@ int FUNCTION_CALL_MODE Worker::FromAdmin( const IMessage * lpMsg , const ISessio
 	else if (strncmp(msgType, "3", 1) == 0)		//CME Globex发来的会话层拒绝消息
 	{
 		WriteLog(LOG_INFO, "[Worker::FromAdmin]:received a session level reject message\n");
+
+		//Audit Trail begin
+		char szTargetCompID[10] = {0};
+		char szSessionID[4] = {0};
+		char szFirmID[4] = {0};
+		strcpy(szTargetCompID, pHeader->GetFieldValueDefault(FIELD::TargetCompID, ""));
+		strncpy(szSessionID, szTargetCompID, 3);//7
+		strncpy(szFirmID, szTargetCompID+3, 3);//8
+		//InterlockedIncrement(&m_MessageLinkID);//14
+
+		if (m_pfAuditTrail)
+		{
+			fprintf(m_pfAuditTrail, ",");//1
+			fprintf(m_pfAuditTrail, "%s,", pHeader->GetFieldValueDefault(FIELD::SendingTime, ""));//2
+			fprintf(m_pfAuditTrail, "FROM CME,");//3
+			fprintf(m_pfAuditTrail, "%s,", pHeader->GetFieldValueDefault(FIELD::TargetSubID, ""));//4
+			fprintf(m_pfAuditTrail, ",,");//5,6
+			fprintf(m_pfAuditTrail, "%s,", szSessionID);//7
+			fprintf(m_pfAuditTrail, "%s,", szFirmID);//8
+			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::ManualOrderIndicator, ""));//9
+			fprintf(m_pfAuditTrail, "%s,", pHeader->GetFieldValueDefault(FIELD::MsgType, ""));//10
+			fprintf(m_pfAuditTrail, ",,,");//11,12,13
+			//fprintf(m_pfAuditTrail, "%l,", m_MessageLinkID);//14
+			fprintf(m_pfAuditTrail, ",");//14
+			fprintf(m_pfAuditTrail, ",,,");//15,16,17
+			fprintf(m_pfAuditTrail, "%s,", pHeader->GetFieldValueDefault(FIELD::SenderSubID, ""));//18
+			fprintf(m_pfAuditTrail, ",,,,,,,,,,,,,,,,,,");//19~36
+			fprintf(m_pfAuditTrail, "%s:%s,", pBody->GetFieldValueDefault(FIELD::OrdRejReason, ""), pBody->GetFieldValueDefault(FIELD::Text, ""));//37
+			fprintf(m_pfAuditTrail, "\n");
+		}
+		//Audit Trail end
 	}
 	else if (strncmp(msgType, "4", 1) == 0)		//CME Globex发来的Sequence Reset消息
 	{
@@ -2650,7 +3008,37 @@ int FUNCTION_CALL_MODE Worker::FromAdmin( const IMessage * lpMsg , const ISessio
 	}
 	else if (strncmp(msgType, "j", 1) == 0)		//CME Globex发来的应用层拒绝消息
 	{
-		//WriteLog(LOG_INFO, "[Worker::FromAdmin]:received a business level reject message\n");
+		WriteLog(LOG_INFO, "[Worker::FromAdmin]:received a business level reject message\n");
+		//Audit Trail begin
+		char szTargetCompID[10] = {0};
+		char szSessionID[4] = {0};
+		char szFirmID[4] = {0};
+		strcpy(szTargetCompID, pHeader->GetFieldValueDefault(FIELD::TargetCompID, ""));
+		strncpy(szSessionID, szTargetCompID, 3);//7
+		strncpy(szFirmID, szTargetCompID+3, 3);//8
+		//InterlockedIncrement(&m_MessageLinkID);//14
+
+		if (m_pfAuditTrail)
+		{
+			fprintf(m_pfAuditTrail, ",");//1
+			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::TransactTime, ""));//2
+			fprintf(m_pfAuditTrail, "FROM CME,");//3
+			fprintf(m_pfAuditTrail, "%s,", pHeader->GetFieldValueDefault(FIELD::TargetSubID, ""));//4
+			fprintf(m_pfAuditTrail, ",,");//5,6
+			fprintf(m_pfAuditTrail, "%s,", szSessionID);//7
+			fprintf(m_pfAuditTrail, "%s,", szFirmID);//8
+			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::ManualOrderIndicator, ""));//9
+			fprintf(m_pfAuditTrail, "%s,", pHeader->GetFieldValueDefault(FIELD::MsgType, ""));//10
+			fprintf(m_pfAuditTrail, ",,,");//11,12,13
+			//fprintf(m_pfAuditTrail, "%l,", m_MessageLinkID);//14
+			fprintf(m_pfAuditTrail, ",");//14
+			fprintf(m_pfAuditTrail, ",,,");//15,16,17
+			fprintf(m_pfAuditTrail, "%s,", pHeader->GetFieldValueDefault(FIELD::SenderSubID, ""));//18
+			fprintf(m_pfAuditTrail, ",,,,,,,,,,,,,,,,,,");//19~36
+			fprintf(m_pfAuditTrail, "%s:%s,", pBody->GetFieldValueDefault(FIELD::OrdRejReason, ""), pBody->GetFieldValueDefault(FIELD::Text, ""));//37
+			fprintf(m_pfAuditTrail, "\n");
+		}
+		//Audit Trail end
 	}
 	else
 	{

@@ -46,7 +46,7 @@ typedef struct tagORDER
 	TCHAR	MaxShow[10];	//Display quantity of an order to be shown in the order book at any given time.
 	TCHAR	ExpireDate[9];	//YYYYMMDD Required only if tag 59-TimeInForce=Good Till Date (GTD).
 	//TCHAR	CtiCode;		//'1'
-	TCHAR OrdStatus[2]; //订单的实际状态. -=作废 P=Pending正在 	0=New已报 	4=Cancelled已撤	5=Modified已改 1=Partial Filled部成 2=Complete Filled已成 C=Expired 8=Rejected H=Trade Cancel U=Undefined A=CAncel Reject L=ALter Reject
+	TCHAR OrdStatus[2]; //订单的实际状态. D=disable作废 P=Pending正在 	0=New已报 	4=Cancelled已撤	5=Modified已改 1=Partial Filled部成 2=Complete Filled已成 C=Expired 8=Rejected H=Trade Cancel U=Undefined A=CAncel Reject L=ALter Reject
 	TCHAR ErrorInfo[64];//错误信息，自定义字段
 } ORDER;
 
@@ -73,7 +73,7 @@ typedef struct tagEXCREPORT
 	TCHAR TradeDate[9];//Indicates date of trade reference in this message in YYYYMMDD format.
 	TCHAR SecurityDesc[21];//Instrument identifier. 	e.g. "ESM0'
 	TCHAR	MinQty[10];		//Minimum quantity of an order to be executed. This tag is used only when tag 59-TimeInForce=3 (Fill and Kill). The value of MinQty must be between 1 and the value in tag 38-OrderQty. 
-	TCHAR	SecurityType[4];//Indicates instrument is future or option.
+	TCHAR	SecurityType[8];//Indicates instrument is future or option.
 	TCHAR ExecType[2];//执行报告类型
 	TCHAR LeavesQty[10];//剩下的没成交的数量
 	TCHAR	ExpireDate[9];	//YYYYMMDD Required only if tag 59-TimeInForce=Good Till Date (GTD).
@@ -275,10 +275,12 @@ private:
 
 	MapClOrderIDToORDER m_mapClOrderIDToOrder;//本地单号 -> 订单
 
-	//TCHAR m_szLastErrorInfo[1024];
-
 	CRITICAL_SECTION m_OrderLock;
 
+	//Audit Trail
+	FILE* m_pfAuditTrail;
+
+	//long m_MessageLinkID;
 	//合约功能
 public:
 	//根据SecurityID获取Instrument
