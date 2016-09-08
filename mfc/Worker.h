@@ -1,6 +1,6 @@
 #pragma once
 #include "ExMDP.h"
-//#include "include/hsfix2_interface.h"
+#include "include/hsfix2_interface.h"
 #include "mfcDlg.h"
 #include <set>
 #include <fstream>
