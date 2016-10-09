@@ -538,7 +538,7 @@ void Worker::ExecReport(const IMessage* pMsg)
 		fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::ClOrdID, ""));//19
 		fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::OrderID, ""));//20
 		fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::Side, ""));//21
-		fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::Quantity, ""));//22
+		fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::OrderQty, ""));//22
 		fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::Price, ""));//23
 		fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::StopPx, ""));//24
 		fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::OrdType, ""));//25
@@ -2756,6 +2756,7 @@ int FUNCTION_CALL_MODE Worker::ToApp( IMessage * lpMsg, const ISessionID * lpSes
 	pHeader->SetFieldValue(FIELD::SenderLocationID, "CN");
 	pHeader->SetFieldValue(FIELD::LastMsgSeqNumProcessed, _ltoa(pSession->getExpectedTargetNum() - 1, szLastMsgSeqNumProcessed, 10 ) );
 
+
 	if (strncmp(msgType, "D", 1) == 0)
 	{
 		//Audit Trail
@@ -2791,7 +2792,7 @@ int FUNCTION_CALL_MODE Worker::ToApp( IMessage * lpMsg, const ISessionID * lpSes
 			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::ClOrdID, ""));//19
 			fprintf(m_pfAuditTrail, ",");//20
 			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::Side, ""));//21
-			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::Quantity, ""));//22
+			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::OrderQty, ""));//22
 			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::Price, ""));//23
 			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::StopPx, ""));//24
 			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::OrdType, ""));//25
@@ -2840,7 +2841,7 @@ int FUNCTION_CALL_MODE Worker::ToApp( IMessage * lpMsg, const ISessionID * lpSes
 			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::ClOrdID, ""));//19
 			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::OrderID, ""));//20
 			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::Side, ""));//21
-			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::Quantity, ""));//22
+			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::OrderQty, ""));//22
 			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::Price, ""));//23
 			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::StopPx, ""));//24
 			fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::OrdType, ""));//25

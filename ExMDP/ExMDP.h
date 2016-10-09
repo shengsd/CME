@@ -90,16 +90,15 @@ public:
 };
 
 //使用者必须定义派生类，并实现其中的回调函数
-class Application
+struct Application
 {
-public:
 	///行情报文回调函数
 	/**
 	*@param  MDPFieldMap* pMDPFieldMap		报文即一条记录
 	*@return const int templateID			报文的模板ID
 	*/
 	virtual void onMarketData( MDPFieldMap* pMDPFieldMap, const int templateID) = 0;
-};
+}; 
 
 #ifdef __cplusplus
 extern "C"{

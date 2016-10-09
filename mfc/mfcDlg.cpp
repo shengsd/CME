@@ -147,10 +147,10 @@ BEGIN_MESSAGE_MAP(CmfcDlg, CDialog)
 	//}}AFX_MSG_MAP
 	ON_BN_CLICKED(IDC_BUTTON_ENTER, &CmfcDlg::OnBnClickedEnter)
 	ON_NOTIFY(NM_DBLCLK, IDC_LIST2, &CmfcDlg::OnNMDblclkList2)
-	ON_BN_CLICKED(IDC_BUTTON3, &CmfcDlg::OnBnClickedButton3)
-	ON_BN_CLICKED(IDC_BUTTON5, &CmfcDlg::OnBnClickedButton5)
+	ON_BN_CLICKED(IDC_BUTTON3, &CmfcDlg::OnBnClickedTrade)
+	ON_BN_CLICKED(IDC_BUTTON5, &CmfcDlg::OnBnClickedQuote)
 	ON_NOTIFY(NM_DBLCLK, IDC_LIST3, &CmfcDlg::OnNMDblclkListOrderInfo)
-	ON_BN_CLICKED(IDC_BUTTON_CLEAR, &CmfcDlg::OnBnClickedQuote)
+	ON_BN_CLICKED(IDC_BUTTON_CLEAR, &CmfcDlg::OnBnClickedRFQ)
 END_MESSAGE_MAP()
 
 /*
@@ -193,7 +193,7 @@ BOOL CmfcDlg::OnInitDialog()
 	// 设置此对话框的图标。当应用程序主窗口不是对话框时，框架将自动
 	//  执行此操作
 	SetIcon(m_hIcon, TRUE);			// 设置大图标
-	SetIcon(m_hIcon, FALSE);		// 设置小图标
+	SetIcon(m_hIcon, FALSE);			// 设置小图标
 
 	// TODO: 在此添加额外的初始化代码
 
@@ -240,6 +240,7 @@ BOOL CmfcDlg::OnInitDialog()
 	m_lvMktDtInfoList.InsertColumn(MktDtInfo_Column_Open, _T("Open"), LVCFMT_LEFT, 50);
 	m_lvMktDtInfoList.InsertColumn(MktDtInfo_Column_High, _T("High"), LVCFMT_LEFT, 50);
 	m_lvMktDtInfoList.InsertColumn(MktDtInfo_Column_Low, _T("Low"), LVCFMT_LEFT, 50);
+
 
 	//初始化买卖盘ListControl
 	m_lvOrderBookList.SetExtendedStyle(m_lvOrderBookList.GetExtendedStyle() | LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
@@ -539,13 +540,13 @@ void CmfcDlg::OnNMDblclkList2(NMHDR *pNMHDR, LRESULT *pResult)
  	}
 }
 
-void CmfcDlg::OnBnClickedButton3()
+void CmfcDlg::OnBnClickedTrade()
 {
 	// TODO: 在此添加控件通知处理程序代码
 	AfxBeginThread(Trade, this);
 }
 
-void CmfcDlg::OnBnClickedButton5()
+void CmfcDlg::OnBnClickedQuote()
 {
 	// TODO: 在此添加控件通知处理程序代码
 	AfxBeginThread(Quote, this);
@@ -610,7 +611,7 @@ void CmfcDlg::OnNMDblclkListOrderInfo(NMHDR *pNMHDR, LRESULT *pResult)
 }
 
 //询价
-void CmfcDlg::OnBnClickedQuote()
+void CmfcDlg::OnBnClickedRFQ()
 {
 	// TODO: 在此添加控件通知处理程序代码
 	ORDER order = {0};

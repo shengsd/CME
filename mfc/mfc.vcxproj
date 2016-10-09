@@ -138,7 +138,6 @@
     <ResourceCompile Include="mfc.rc" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="ClassDiagram.cd" />
     <None Include="res\mfc.rc2" />
   </ItemGroup>
   <ItemGroup>

@@ -42,6 +42,7 @@
 #define OrderBook_Column_SellLevel 3
 #define OrderBook_Column_SellPrice 4
 #define OrderBook_Column_SellQuantity 5
+
 // CmfcDlg 对话框
 class CmfcDlg : public CDialog
 {
@@ -69,11 +70,13 @@ protected:
 public:
 	afx_msg void OnBnClickedEnter();
 	afx_msg void OnNMDblclkList2(NMHDR *pNMHDR, LRESULT *pResult);
-	afx_msg void OnBnClickedButton3();
-	afx_msg void OnBnClickedButton5();
+	afx_msg void OnBnClickedTrade();
+	afx_msg void OnBnClickedQuote();
 
 	//双击订单信息界面，用于改单、撤单
 	afx_msg void OnNMDblclkListOrderInfo(NMHDR *pNMHDR, LRESULT *pResult);
+	//询价
+	afx_msg void OnBnClickedRFQ();
 
 	// 订单信息
 	CListCtrl m_lvOrderInfoList;
@@ -110,5 +113,4 @@ public:
 	CDateTimeCtrl m_ExpireDate;
 	//订单最少成交量
 	CEdit m_MinQty;
-	afx_msg void OnBnClickedQuote();
 };

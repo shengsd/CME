@@ -18,6 +18,9 @@ CAlterDlg::CAlterDlg(ORDER& order, CWnd* pParent /*=NULL*/)
 	, m_csOrigOrderQty(_T(""))
 	, m_csOrigPrice(_T(""))
 	, m_csOrigStopPx(_T(""))
+	, m_csOrderQty(_T(""))
+	, m_csPrice(_T(""))
+	, m_csStopPx(_T(""))
 {
 }
 
@@ -32,6 +35,9 @@ void CAlterDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Text(pDX, IDC_EDIT_Orig_OrderQty, m_csOrigOrderQty);
 	DDX_Text(pDX, IDC_EDIT_Orig_Price, m_csOrigPrice);
 	DDX_Text(pDX, IDC_EDIT_Orig_StopPrice, m_csOrigStopPx);
+	DDX_Text(pDX, IDC_EDIT6, m_csOrderQty);
+	DDX_Text(pDX, IDC_EDIT7, m_csPrice);
+	DDX_Text(pDX, IDC_EDIT4, m_csStopPx);
 }
 
 
@@ -53,9 +59,11 @@ void CAlterDlg::OnBnClickedCancelOrder()
 
 void CAlterDlg::OnBnClickedReplaceOrder()
 {
-	strcpy(m_order.OrderQty, m_csOrigOrderQty);
-	strcpy(m_order.Price, m_csOrigPrice);
-	strcpy(m_order.StopPx, m_csOrigStopPx);
+	UpdateData(TRUE);
+	strcpy(m_order.OrderQty, m_csOrderQty);
+	strcpy(m_order.Price, m_csPrice);
+	strcpy(m_order.StopPx, m_csStopPx);
+	
 	g_worker.ReplaceOrder(m_order);
 	CDialogEx::OnOK();
 }

@@ -28,4 +28,7 @@ public:
 	//被改/撤订单信息需要传入
 	ORDER& m_order;
 	afx_msg void OnBnClickedReplaceOrder();
+	CString m_csOrderQty;
+	CString m_csPrice;
+	CString m_csStopPx;
 };
