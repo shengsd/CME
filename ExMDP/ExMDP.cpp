@@ -5,7 +5,7 @@
 #include "Initiator.h"
 
 MDP::Initiator* p = NULL;
-
+int test = 10;
 EXMDP_API int StartEngine( ConfigStruct* configStruct, Application* application )
 {
 	if (configStruct == NULL)

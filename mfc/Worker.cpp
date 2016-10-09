@@ -1074,21 +1074,23 @@ void Worker::OnUpdate(MDPFieldMap* pFieldMap)
 
 	Instrument inst;
 	memset(&inst, 0, sizeof(inst));
-	if (pField = pFieldMap->getField(FIELD::SecurityID))//CME合约唯一ID,Map Key
+	//Unique instrument ID
+	if (pField = pFieldMap->getField(FIELD::SecurityID))
 	{
 		inst.SecurityID = (int)pField->getInt();
 	}
-
+	//简单校验
 	if (inst.SecurityID <= 0)
 	{
 		m_fLog << "[OnUpdate]: error security id:" << inst.SecurityID << std::endl;
 		return ;
 	}
-
-	if (pField = pFieldMap->getField(FIELD::Symbol))//CME合约代码 Instrument Name or Symbol
+	//CME合约代码 Instrument Name or Symbol
+	if (pField = pFieldMap->getField(FIELD::Symbol))
 	{
 		pField->getArray(0, inst.Symbol, 0, pField->length());
 	}
+
 	char action;//Last Security update action on Incremental feed, 'D' or 'M' is used when a mid-week deletion or modification (i.e. extension) occurs
 	if (pField = pFieldMap->getField(FIELD::SecurityUpdateAction))
 	{
