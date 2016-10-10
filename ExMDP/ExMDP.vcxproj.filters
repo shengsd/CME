@@ -60,9 +60,6 @@
     <ClInclude Include="Mutex.h">
       <Filter>头文件</Filter>
     </ClInclude>
-    <ClInclude Include="Exceptions.h">
-      <Filter>头文件</Filter>
-    </ClInclude>
     <ClInclude Include="Initiator.h">
       <Filter>头文件</Filter>
     </ClInclude>
@@ -125,9 +122,6 @@
     </ClInclude>
     <ClInclude Include="uk_co_real_logic_sbe_ir_generated\TokenCodec.hpp">
       <Filter>SBEdecoder\Headers</Filter>
-    </ClInclude>
-    <ClInclude Include="resource.h">
-      <Filter>头文件</Filter>
     </ClInclude>
     <ClInclude Include="SBEdecoder.h">
       <Filter>头文件</Filter>

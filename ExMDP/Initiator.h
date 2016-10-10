@@ -1,6 +1,5 @@
 #pragma once
 
-#include "Exceptions.h"
 #include "Connector.h"
 #include "Session.h"
 #include "ExMDP.h"
@@ -21,7 +20,6 @@ namespace MDP
 	class Channel;
 	typedef std::map< ChannelID, Channel* > Channels;
 
-
 	typedef struct __SocketInfo
 	{
 		Channel* pChannel;
@@ -41,30 +39,30 @@ namespace MDP
 		~Initiator();
 
 		//启动
-		void start( ConfigStruct* configStruct, Application* application ) throw ( ConfigError, RuntimeError);
+		int start( ConfigStruct* configStruct, Application* application );
 
 		//停止
-		void stop();
+		int stop();
 
 		//接入合约定义组播
-		bool doConnectToInstDef( const ChannelID );
+		bool subscribeInstrumentDefinition( const ChannelID );
 
 		//接入实时行情组播
 		bool doConnectToRealTime( const ChannelID );
 
 		//接入市场快照组播
-		bool doConnectToSnapShot( const ChannelID );
+		bool subscribeMarketRecovery( const ChannelID );
 
 		//断开UDP组播
-		bool disConnectMulticast( const int sock );
+		bool unsubscribe( const int sock );
 
 		//重发请求
 		bool GenerateRetransRequest(ChannelID , unsigned, unsigned);
 
-		//SBE解码
-		//解析模板文件,允许Channel使用
+		//SBE解析模板文件,非线程安全
+		//接收线程使用
 		IrRepo m_irRepo;
-
+		//处理线程使用
 		IrRepo m_irRepoX;
 
 		//数据包入队列
@@ -125,26 +123,11 @@ namespace MDP
 		
 
 	private:
-		//初始化，读取配置文件，创建Channel
-		void initialize() throw (ConfigError);
-
 		//接收数据线程运行中
 		void onReceiverStart();
 
-		//接收数据线程停止中
-		//void onReceiverStop();
-
 		void onProcessorStart();
 
-		//void onProcessorStop();
-
-		//发起连接，加入组播
-		void connectMulticast();
-
-		//运行状态
-		//bool isStopped() { return m_stop; }
-
-		
 		void onConnect(Connector&, int);
 
 		void onWrite(Connector&, int);
@@ -158,9 +141,6 @@ namespace MDP
 		void onError(Connector&);
 		
 		void onTimeout(Connector&);
-
-		//控制日志输出，防止一直超时写日志
-		BOOL m_bLog;
 
 		//上一次接收数据超时
 		time_t m_lastTimeOut;
@@ -198,21 +178,18 @@ namespace MDP
 		MapSocketToSocketInfo m_socketToSocketInfo;
 
 		//启动接收数据线程
-		static THREAD_PROC receiverThread( void* p );
+		static unsigned int _stdcall receiverThread( void* p );
 
-		//接收数据线程ID
-		thread_id m_tReceiverID;
+		//创建的线程句柄
+		HANDLE m_hThreads[2];
 
 		//启动处理数据线程
-		static THREAD_PROC processorThread( void* p );
+		static unsigned int _stdcall processorThread( void* p );
 
 		//引擎日志文件
 		//std::ofstream m_fLog;
 		//有效行情解析日志文件
-		std::ofstream m_fDecoding;
-		
-		//处理数据线程ID
-		thread_id m_tProcessorID;
+		std::ofstream m_fLog;
 
 		//TCP会话
 		Session* m_session;
@@ -227,7 +204,7 @@ namespace MDP
 		bool m_onRetransmission;
 
 		//引擎关闭事件
-		//bool m_stop;
+		volatile BOOL m_bStop;
 		HANDLE m_hEventStop;
 
 		//行情数据包指示

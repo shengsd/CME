@@ -63,9 +63,9 @@ namespace MDP
 		//订阅Incremental Feed
 		void subscribeIncremental();
 		//订阅Recovery服务
-		void subscribeMarket();
+		void subscribeMarketRecovery();
 		//订阅Instrument Replay Feed
-		void subscribeInstrument();
+		void subscribeInstrumentDefinition();
 		//退出组播
 		void unsubscribe(int socket);
 
@@ -74,7 +74,7 @@ namespace MDP
 		//bool isOnIncremental() { return m_bOnIncremental; }
 
 		//Instrument Recovery服务状态设置
-		void setOnInstrumentRecovery( bool value ) { m_bOnInstrumentRecovery = value; }
+		void setOnInstrumentDefinition( bool value ) { m_bOnInstrumentRecovery = value; }
 		bool isOnInstrumentRecovery() { return m_bOnInstrumentRecovery; }
 
 		//合约定义获取状态设置
@@ -93,7 +93,7 @@ namespace MDP
 
 //		void resetIncremental();
 		void resetMarketRecovery();
-		void resetInstrumentRecovery();
+		void resetInstrumentDefinition();
 
 		void onEvent( const std::string& );
 
@@ -152,9 +152,6 @@ namespace MDP
 		PacketSpool m_SnapShotPacketSpool;
 
 		Initiator* m_initiator;
-
-		void readFromSocket(int ) throw( SocketRecvFailed );
-		void readFromSocket(int , Packet& ) throw( SocketRecvFailed );
 
 		//从socket读取的数据直接存到Packet中
 		char m_buffer[2048];

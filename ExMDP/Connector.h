@@ -1,7 +1,6 @@
 #pragma once
 #pragma warning( disable : 4503 4355 4786 4290 )
 #include <Winsock2.h>
-typedef int socklen_t;
 #include <set>
 #include <queue>
 #include <time.h>

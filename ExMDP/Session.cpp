@@ -1,6 +1,6 @@
 #include "stdafx.h"
 #include "Session.h"
-#define USEQUICKFIX
+//#define USEQUICKFIX
 
 #ifdef USEQUICKFIX
 #pragma comment(lib, "quickfix.lib")
@@ -37,29 +37,15 @@ namespace MDP
 
 	bool Session::read( Connector& connector)
 	{
-		try
-		{
-			readFromSocket();
-		}
-		catch( SocketRecvFailed& e )
-		{
-			m_pChannel->onEvent( e.what() );
-			return false;
-		}
-		//TODO:识别消息类型，处理系统消息，转发应用消息
-		//m_pChannel->onData(m_buffer, m_len);
-
-		return true;
-	}
-
-	void Session::readFromSocket() throw (SocketRecvFailed)
-	{
 		memset(m_buffer, 0, sizeof(m_buffer));
 		m_len = recv(m_socket, m_buffer, sizeof(m_buffer), 0);
 		if (m_len <= 0)
-			throw SocketRecvFailed(m_len);
+			return false;
+		else
+			return true;
+		//TODO:识别消息类型，处理系统消息，转发应用消息
+		//m_pChannel->onData(m_buffer, m_len);
 	}
-
 
 	void Session::next()
 	{

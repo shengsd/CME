@@ -58,7 +58,6 @@ namespace MDP
 		/*接收，处理消息                                                        */
 		
 		bool read( Connector& );
-		void readFromSocket() throw( SocketRecvFailed );
 		void readMessages( Connector& );
 		bool readMessage( std::string& );
 //		void processRtsPacket();

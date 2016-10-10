@@ -92,7 +92,6 @@
   <ItemGroup>
     <ClInclude Include="Channel.h" />
     <ClInclude Include="Connector.h" />
-    <ClInclude Include="Exceptions.h" />
     <ClInclude Include="ExMDP.h" />
     <ClInclude Include="Initiator.h" />
     <ClInclude Include="Mutex.h" />
@@ -106,7 +105,6 @@
     <ClInclude Include="otf_api\OnNext.h" />
     <ClInclude Include="Packet.h" />
     <ClInclude Include="SBEdecoder.h" />
-    <ClInclude Include="resource.h" />
     <ClInclude Include="sbe\sbe.hpp" />
     <ClInclude Include="Session.h" />
     <ClInclude Include="stdafx.h" />

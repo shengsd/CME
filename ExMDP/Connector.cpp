@@ -1,7 +1,7 @@
 #include "stdafx.h"
 #include "Connector.h"
-#include "Exceptions.h"
 #include "ExMDP.h"
+#include "Utility.h"
 
 namespace MDP
 {
@@ -142,18 +142,6 @@ namespace MDP
 
 	void Connector::block( Strategy& strategy, bool poll, long timeout /* = 0 */ )
 	{
-// 		while ( m_dropped.size() )
-// 		{
-// 			strategy.onError( *this, m_dropped.front() );
-// 			m_dropped.pop();
-// 			if ( m_dropped.size() == 0 )
-// 				return ;
-// 		}
-
-// 		timeval timeVal;
-// 		timeVal.tv_sec = timeout;
-// 		timeVal.tv_usec = 0;
-
 		fd_set readSet;
 		FD_ZERO( &readSet );
 		buildSet( m_readSockets, readSet );
@@ -165,15 +153,7 @@ namespace MDP
 		FD_ZERO( &exceptSet );
 		buildSet( m_connectSockets, exceptSet );
 
-// 		if ( sleepIfEmpty(poll) )
-// 		{
-// 			strategy.onTimeout( *this );
-// 			return;
-// 		}
-
 		int result = select( FD_SETSIZE, &readSet, NULL, NULL, &m_timeval);//&writeSet, &exceptSet, &m_timeval );
-
-		//g_lpfnWriteLog(LOG_DEBUG, "select result:%d", result);
 
 		if ( result == 0 )
 		{
@@ -238,41 +218,6 @@ namespace MDP
 		}
 	}
 
-
-// 	inline timeval* Connector::getTimeval( bool poll, long timeout )
-// 	{
-// 		if ( poll )
-// 		{
-// 			m_timeval.tv_sec = 0;
-// 			m_timeval.tv_usec = 0;
-// 			return &m_timeval;
-// 		}
-// 
-// 		timeout = m_timeout;
-// 
-// 		if ( !timeout )
-// 			return 0;
-// #ifdef SELECT_MODIFIES_TIMEVAL
-// 		if ( !m_timeval.tv_sec && !m_timeval.tv_usec && timeout )
-// 			m_timeval.tv_sec = timeout;
-// 		return &m_timeval;
-// #else
-// 		long elapsed = ( clock() - m_ticks ) / CLOCKS_PER_SEC;
-// 		if ( elapsed >= timeout || elapsed == 0.0 )
-// 		{
-// 			m_ticks = clock();
-// 			m_timeval.tv_sec = 0;
-// 			m_timeval.tv_usec = timeout * 1000000;
-// 		}
-// 		else
-// 		{
-// 			m_timeval.tv_sec = 0;
-// 			m_timeval.tv_usec = ( timeout - elapsed ) * 1000000 ;
-// 		}
-// 		return &m_timeval;
-// #endif
-// 	}
-
 	bool Connector::addConnect( int socket )
 	{
 		socket_setnonblock( socket );
@@ -328,7 +273,6 @@ namespace MDP
 		return false;
 	}
 
-
 	void Connector::buildSet( const Sockets& sockets, fd_set& watchSet )
 	{
 		Sockets::const_iterator iter;
@@ -337,20 +281,5 @@ namespace MDP
 		}
 	}
 
-// 	bool Connector::sleepIfEmpty( bool poll )
-// 	{
-// 		if( poll )
-// 			return false;
-// 
-// 		if ( m_readSockets.empty() && 
-// 			m_writeSockets.empty() &&
-// 			m_connectSockets.empty() )
-// 		{
-// 			process_sleep( m_timeout );
-// 			return true;
-// 		}
-// 		else
-// 			return false;
-// 	}
 }
 

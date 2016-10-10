@@ -4,44 +4,15 @@
 #include "ExMDP.h"
 #include "Initiator.h"
 
-MDP::Initiator* p = NULL;
-int test = 10;
+MDP::Initiator p;
+
 EXMDP_API int StartEngine( ConfigStruct* configStruct, Application* application )
 {
-	if (configStruct == NULL)
-		return -1;
-	if (application == NULL)
-	{
-		strcpy(configStruct->errorInfo, "Param Application* is NULL");
-		return -1;
-	}
-
-	try
-	{
-		if (p == NULL)
-			p = new MDP::Initiator;
-		else
-			throw MDP::RuntimeError("[StartEngine]: failed. Engine already started!");
-		p->start(configStruct, application);
-	}
-	catch ( std::exception& e )
-	{
-		strcpy(configStruct->errorInfo, e.what());
-		return -1;
-	}
-
-	return 0;
+	return p.start(configStruct, application);
 }
 
 EXMDP_API int StopEngine()
 {
-	if (p)
-	{
-		p->stop();
-		delete p;
-		p = NULL;
-		return 0;
-	}
-	return -1;
+	return p.stop();
 }
 

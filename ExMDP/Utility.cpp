@@ -70,7 +70,7 @@ int socket_createAcceptor(int port, bool reuse)
 	if ( socket < 0 ) return -1;
 
 	sockaddr_in address;
-	socklen_t socklen;
+	int socklen;
 
 	address.sin_family = PF_INET;
 	address.sin_port = htons( port );
@@ -181,7 +181,7 @@ int socket_getsockopt( int s, int opt, int& optval )
 #ifdef _MSC_VER
 	int length = sizeof(int);
 #else
-	socklen_t length = sizeof(socklen_t);
+	int length = sizeof(int);
 #endif
 
 	return ::getsockopt( s, level, opt, 
@@ -246,7 +246,7 @@ void socket_invalidate( int& socket )
 short socket_hostport( int socket )
 {
 	struct sockaddr_in addr;
-	socklen_t len = sizeof(addr);
+	int len = sizeof(addr);
 	if( getsockname(socket, (struct sockaddr*)&addr, &len) < 0 )
 		return 0;
 
@@ -256,7 +256,7 @@ short socket_hostport( int socket )
 const char* socket_hostname( int socket )
 {
 	struct sockaddr_in addr;
-	socklen_t len = sizeof(addr);
+	int len = sizeof(addr);
 	if( getsockname(socket, (struct sockaddr*)&addr, &len) < 0 )
 		return 0;
 
@@ -295,7 +295,7 @@ const char* socket_hostname( const char* name )
 const char* socket_peername( int socket )
 {
 	struct sockaddr_in addr;
-	socklen_t len = sizeof(addr);
+	int len = sizeof(addr);
 	if( getpeername( socket, (struct sockaddr*)&addr, &len ) < 0 )
 		return "UNKNOWN";
 	char* result = inet_ntoa( addr.sin_addr );

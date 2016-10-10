@@ -24,11 +24,9 @@ namespace MDP
 		ss >> str;
 		file_mkdir(str.c_str());
 		m_packetsFileName = str + "/packets.log";
-		m_fPackets.open( m_packetsFileName.c_str(), std::ios::out | std::ios::binary | std::ios::trunc );
-		if ( !m_fPackets.is_open() ) throw ConfigError( "Could not open packets file: " + m_packetsFileName );
+		m_fPackets.open( m_packetsFileName.c_str(), std::ios::out | std::ios::binary | std::ios::app );
 		m_eventsFileName = str + "/events.log";
-		m_fEvents.open(m_eventsFileName.c_str(), std::ios::out | std::ios::trunc );
-		if ( !m_fEvents.is_open() ) throw ConfigError( "Could not open events file: " + m_eventsFileName );
+		m_fEvents.open(m_eventsFileName.c_str(), std::ios::out | std::ios::app );
 	}
 
 	Channel::~Channel(void)
@@ -54,15 +52,18 @@ namespace MDP
 		//read packet from socket
 		m_fEvents << "[Channel::read]: sock:" << sock << " connectType:" << connectType ;
 		Packet packet;
-		try
-		{
-			readFromSocket(sock, packet);
-		}
-		catch( SocketRecvFailed& e )
-		{
-			m_fEvents << e.what() << std::endl;
+		
+		int size = sizeof(struct sockaddr);
+		struct sockaddr_in local_addr;
+
+		// Read the data on the socket
+		int nLen = recvfrom(sock, packet.getPacketPointer(), MAXPACKETSIZE, 0, (struct sockaddr *) &local_addr, &size);
+		if (nLen < 0)
 			return false;
-		}
+
+		packet.setPacketSize(nLen);
+		//UtcTimeStamp now;
+		//setLastReceivedTime( now );
 
 		//Packet packet(m_buffer, m_len);
 
@@ -105,32 +106,6 @@ namespace MDP
 			return false;
 		}
 		return true;
-	}
-
-	void Channel::readFromSocket(int sock) throw( SocketRecvFailed )
-	{
-		socklen_t size = sizeof(struct sockaddr);
-		struct sockaddr_in local_addr;
-
-		// Read the data on the socket
-		m_len = recvfrom(sock, m_buffer, MAXPACKETSIZE, 0, (struct sockaddr *) &local_addr, &size);
-		if (m_len < 0)
-			throw( SocketRecvFailed( m_len ) );
-	}
-
-	void Channel::readFromSocket(int sock , Packet& packet) throw( SocketRecvFailed )
-	{
-		socklen_t size = sizeof(struct sockaddr);
-		struct sockaddr_in local_addr;
-
-		// Read the data on the socket
-		int nLen = recvfrom(sock, packet.getPacketPointer(), MAXPACKETSIZE, 0, (struct sockaddr *) &local_addr, &size);
-		if (nLen < 0)
-			throw( SocketRecvFailed( nLen ) );
-
-		packet.setPacketSize(nLen);
-		//UtcTimeStamp now;
-		//setLastReceivedTime( now );
 	}
 
 	void Channel::processRealTimePacket(Packet& packet)
@@ -187,7 +162,7 @@ namespace MDP
 
 		if (!isOnInstrumentRecovery())
 		{
-			resetInstrumentRecovery();
+			resetInstrumentDefinition();
 			m_fEvents << "Instrument Recovery completed, reset Instrument Recovery Feed..." << std::endl;
 		}
 	}
@@ -324,7 +299,7 @@ namespace MDP
 					
 					if (!isOnMarketRecovery())
 					{
-						subscribeMarket();
+						subscribeMarketRecovery();
 					}
 					else
 					{
@@ -455,10 +430,10 @@ namespace MDP
 //#endif
 						//setInstDefComplete(true);
 						unsubscribe(sock);
-						setOnInstrumentRecovery(false);
+						setOnInstrumentDefinition(false);
 						//收完合约后，收快照
 						subscribeIncremental();
-						subscribeMarket();
+						subscribeMarketRecovery();
 					}
 				}
 			}
@@ -531,31 +506,30 @@ namespace MDP
 		}
 	}
 
-	void Channel::subscribeMarket()
+	void Channel::subscribeMarketRecovery()
 	{
-		if (m_initiator->doConnectToSnapShot( m_ChannelID ))
+		if (m_initiator->subscribeMarketRecovery( m_ChannelID ))
 		{
 			setOnMarketRecovery(true);
 			m_fEvents << "subscribe Market Recovery" << std::endl;
 		}
 	}
 
-	void Channel::subscribeInstrument()
+	void Channel::subscribeInstrumentDefinition()
 	{
-		if ( m_initiator->doConnectToInstDef( m_ChannelID ) )
+		if ( m_initiator->subscribeInstrumentDefinition( m_ChannelID ) )
 		{
-			setOnInstrumentRecovery( true );
-			m_fEvents << "subscribe Instrument Recovery!" << std::endl;
+			setOnInstrumentDefinition( true );
+			m_fEvents << "subscribe Instrument Definition!" << std::endl;
 		}
 	}
 
-
-
 	void Channel::unsubscribe(int socket)
 	{
-		m_initiator->disConnectMulticast(socket);
+		m_initiator->unsubscribe(socket);
 		m_fEvents << "Channel ID:"<< m_ChannelID << ", unsubscribe feed, socket:" << socket << std::endl;
 	}
+
 /*
 	void Channel::clearPacketQueue()
 	{
@@ -575,7 +549,7 @@ namespace MDP
 		}
 	}
 */
-	void Channel::resetInstrumentRecovery()
+	void Channel::resetInstrumentDefinition()
 	{
 		m_InstDefNextSeqNum = 1;
 		m_InstDefProcessedNum = 0;

@@ -3,53 +3,87 @@
 #include "TinyXML/tinystr.h"
 #include "TinyXML/tinyxml.h"
 
-
 namespace MDP
 {
-	Initiator::Initiator()
-		:m_tReceiverID(0),
+	Initiator::Initiator():
 		m_reconnectInterval(30),
 		m_lastTimeOut(0),
 		m_connectTimes(0),
 		m_onRetransmission(false)
 	{
 		InitializeCriticalSection( &m_mutex );
+		//创建引擎停止指令事件
+		m_hEventStop = CreateEvent( NULL, TRUE, TRUE, NULL );
+		//创建数据包待处理事件
+		m_hEventData = CreateEvent( NULL, TRUE, FALSE, NULL );
+		m_bStop = TRUE;
 		m_session = NULL;
-		m_bLog = TRUE;
 		time(&m_lastTimeOut);
-		//file_mkdir("MDPEngineLog");
-		//m_fLog.open("MDPEngine.log", std::ios::out | std::ios::binary | std::ios::trunc );
-		//if ( !m_fLog.is_open() ) throw ConfigError( "can't open MDPEngine.log");
-		if (_access(".\\CME", 0) != 0)
-		{
-			_mkdir(".\\CME");
-		}
-		m_fDecoding.open(".\\CME\\Decoding.log", std::ios::out | std::ios::binary | std::ios::trunc );
-		if ( !m_fDecoding.is_open() ) throw ConfigError( "can't open decoding.log");
 	}
-
 
 	Initiator::~Initiator()
 	{
 		DeleteCriticalSection( &m_mutex );
-		m_fDecoding.close();
+		CloseHandle(m_hEventStop);
+		CloseHandle(m_hEventData);
+		m_fLog.close();
 	}
 
-	void Initiator::initialize() throw ( ConfigError )
+	int Initiator::start( ConfigStruct* configStruct, Application* application)
 	{
+		if (configStruct == NULL)
+			return 1;
+		if (application == NULL)
+		{
+			strcpy(configStruct->errorInfo, "Invalid Param: Application* (NULL)");
+			return 1;
+		}
+
+		if (!m_bStop)
+		{
+			strcpy(configStruct->errorInfo, "[start]: failed! Already started!\n");
+			return 1;
+		}
+
+		m_configFile.assign(configStruct->configFile);
+		m_localInterface.assign(configStruct->localInterface);
+		m_templateFile.assign(configStruct->templateFile);
+		m_username.assign(configStruct->userName);
+		m_password.assign(configStruct->passWord);
+		m_application = application;
+
+		//打开（创建）日志文件
+		char szLog[MAX_PATH] = ".\\CME";
+		if (_access(szLog, 0) != 0)
+			_mkdir(szLog);
+		SYSTEMTIME st;
+		GetSystemTime(&st);
+		sprintf(szLog, "%s\\MDP_%02d.log", szLog, st.wDay);
+		m_fLog.open(szLog, std::ios::out | std::ios::binary | std::ios::app );
+		if ( !m_fLog.is_open() )
+		{
+			strcpy(configStruct->errorInfo, "[start]: Open log file failed!\n");
+			return 1;
+		}
+
+		//初始化，读取XML配置文件，创建Channel
 		//read config.xml file
 		TiXmlDocument doc( m_configFile.c_str() );
 
 		bool loadOkay = doc.LoadFile();
 
 		if ( !loadOkay )	//printf( "Could not load test file 'config.xml'. Error='%s'. Exiting.\n", doc.ErrorDesc() );
-			throw ConfigError("[initialize]: Could not load test file 'config.xml'. Exiting.\n");
+		{
+			strcpy(configStruct->errorInfo, "[start]: Could not load config.xml 'config.xml'. Exiting.\n");
+			return 1;
+		}
 
 		TiXmlHandle handleDoc(&doc);
 		TiXmlElement* pElementChannel = handleDoc.FirstChildElement( "configuration" ).FirstChildElement( "channel" ).ToElement();	
 
 		for (pElementChannel; pElementChannel; pElementChannel = pElementChannel->NextSiblingElement())
 		{
+			//获取channel id
 			int iTemp;
 			if (pElementChannel->QueryIntAttribute("id", &iTemp) != TIXML_SUCCESS)
 				continue;
@@ -61,12 +95,11 @@ namespace MDP
 			for (pElementConnection; pElementConnection; pElementConnection = pElementConnection->NextSiblingElement())
 			{
 				std::string id;
-				//ConnectionInfo* pConnectionInfo = new ConnectionInfo;
 				ConnectionInfo connectionInfo;
 				if (pElementConnection->QueryStringAttribute( "id", &id ) != TIXML_SUCCESS)
 					continue;
 
-				//获取connection信息，ip，host-ip，port，可以为空，其它地方必须取到值
+				//获取connection信息，ip，host-ip，port
 				TiXmlElement* pElementIp = pElementConnection->FirstChildElement("ip");
 				if (pElementIp)
 				{
@@ -82,14 +115,18 @@ namespace MDP
 				{
 					connectionInfo.port = pElementPort->GetText();
 				}
-
 				m_connectionIDtoInfo.insert(std::pair<std::string, ConnectionInfo>(id, connectionInfo));
 			}
 		}
 
+		//channel数量为0
 		if (!m_channelIDs.size())
-			throw ConfigError( "[initialize]: No Channel defined!" );
+		{
+			strcpy(configStruct->errorInfo, "[initialize]: No Channel defined!\n");
+			return 1;
+		}
 
+		//为每个channelID创建channel
 		ChannelIDs::iterator i = m_channelIDs.begin();
 		for ( ; i != m_channelIDs.end(); i++ )
 		{
@@ -97,60 +134,42 @@ namespace MDP
 			m_channels[*i] = pChannel;
 		}
 
-		//read templates_FixBinary.xml file
-		if ( m_irRepo.loadFromFile( m_templateFile.c_str() ) < 0 )
-			throw ConfigError( "[initialize]: could not load IR!" );
+		//读取SBE解析文件 templates_FixBinary.sbeir
+		if ( m_irRepo.loadFromFile( m_templateFile.c_str() ) == -1 || m_irRepoX.loadFromFile( m_templateFile.c_str() ) == -1 )
+		{
+			strcpy(configStruct->errorInfo, "[initialize]: could not load IR!\n");
+			return 1;
+		}
 
-		if ( m_irRepoX.loadFromFile( m_templateFile.c_str() ) < 0 )
-			throw ConfigError( "[initialize]: could not load IR!" );
+		//创建接收线程
+		if ( (m_hThreads[0] = (HANDLE)_beginthreadex(NULL, 0, &receiverThread, this, 0, NULL)) == 0 )
+		{
+			strcpy(configStruct->errorInfo, "[start]: Unable to spawn receiver thread!\n");
+			return 1;
+		}
+
+		//创建处理线程
+		if ( (m_hThreads[1] = (HANDLE)_beginthreadex(NULL, 0, &processorThread, this, 0, NULL)) == 0 )
+		{
+			strcpy(configStruct->errorInfo, "[start]: Unable to spawn processor!\n");
+			return 1;
+		}
+
+		ResetEvent(m_hEventStop);
+		m_bStop = FALSE;
+		return 0;
 	}
 
 
-	void Initiator::start( ConfigStruct* configStruct, Application* application) throw ( ConfigError, RuntimeError)
+	int Initiator::stop()
 	{
-		m_configFile.assign(configStruct->configFile);
-		m_localInterface.assign(configStruct->localInterface);
-		m_templateFile.assign(configStruct->templateFile);
-		m_username.assign(configStruct->userName);
-		m_password.assign(configStruct->passWord);
-
-		m_application = application;
-
-		initialize();
-
-		m_hEventStop = CreateEvent( NULL, TRUE, FALSE, NULL );
-		m_hEventData = CreateEvent( NULL, TRUE, FALSE, NULL );
-
-		if( !thread_spawn( &receiverThread, this, m_tReceiverID ) )
-			throw RuntimeError("[start]: Unable to spawn receiver thread");
-
-		if ( !thread_spawn( &processorThread, this, m_tProcessorID ) )
-			throw RuntimeError("[start]: Unable to spawn processor ");
-
-		//m_fLog << "Engine Started..." << std::endl;
-	}
-
-
-	void Initiator::stop()
-	{
-		//g_lpfnWriteLog(LOG_DEBUG, "stop called\n");
+		if (m_bStop)
+			return 1;
 		//m_fLog << "[Initiator]: stop called\n";
-		if (m_hEventStop)
-			SetEvent(m_hEventStop);
+		SetEvent(m_hEventStop);
 
 		//等待接收线程退出
-		if( m_tReceiverID )
-			thread_join( m_tReceiverID );
-		m_tReceiverID = 0;
-
-		//m_fLog << "[Initiator]: stop receiver \n";
-
-		//等待处理线程退出
-		if ( m_tProcessorID )
-			thread_join( m_tProcessorID );
-		m_tProcessorID = 0;
-
-		//m_fLog << "[Initiator]: stop processor \n";
+		WaitForMultipleObjects(2, m_hThreads, TRUE, INFINITE);
 
 		//断开所有socket连接，清空连接信息
 		//g_lpfnWriteLog(LOG_DEBUG, "m_socketToSocketInfo.size:%d\n", m_socketToSocketInfo.size());
@@ -166,7 +185,6 @@ namespace MDP
 				m_onRetransmission = false;
 				delete m_session;
 				m_session = NULL;
-				
 			}
 			else
 			{
@@ -198,6 +216,8 @@ namespace MDP
 		}
 
 		//m_fLog << "Engine Stopped..." << std::endl;
+		m_bStop = TRUE;
+		return 0;
 	}
 
 	void Initiator::onReceiverStart()
@@ -207,7 +227,17 @@ namespace MDP
 		//1.Pre-Opening Startup
 		//2.Late Joiner Startup
 		//TODO:按Channel ID订阅，具体需求还需研究
-		connectMulticast();
+		ChannelIDs::iterator i = m_channelIDs.begin();
+		for ( ; i != m_channelIDs.end(); i++ )
+		{
+			//g_lpfnWriteLog(LOG_INFO, "Connecting to Channel ID[%d]\n", *i);
+			//doConnectToRealTime( *i );
+			Channels::iterator j = m_channels.find( *i );
+			if (j != m_channels.end())
+			{
+				j->second->subscribeInstrumentDefinition();
+			}
+		}
 
 		while (WaitForSingleObject(m_hEventStop, 0) != WAIT_OBJECT_0)
 		{
@@ -238,7 +268,7 @@ namespace MDP
 
 				//g_lpfnWriteLog(LOG_DEBUG, "[onProcessorStart]: packet seqNum:%d", packet.getSeqNum());
 
-				m_fDecoding << "[onProcessorStart]: packet seqNum:" << packet.getSeqNum() << std::endl;
+				m_fLog << "[onProcessorStart]: packet seqNum:" << packet.getSeqNum() << std::endl;
 				
 				char* pBuf = packet.getPacketPointer() + 12;//sizeof(PacketHeader);
 				int len = packet.getPacketSize() - 12;
@@ -251,21 +281,21 @@ namespace MDP
 					pBuf += 2;
 					len -= 2;
 
-					CarCallbacks carCbs(listener, &m_fDecoding);
+					CarCallbacks carCbs(listener, &m_fLog);
 					listener.dispatchMessageByHeader(m_irRepoX.header(), &m_irRepoX)
 						.resetForDecode(pBuf , len)
 						.subscribe(&carCbs, &carCbs, &carCbs);
 
 					if (carCbs.getStatus())
 					{
-						m_fDecoding << "[onProcessorStart]: parse success, message template ID:"<< listener.getTemplateId() << std::endl;
+						m_fLog << "[onProcessorStart]: parse success, message template ID:"<< listener.getTemplateId() << std::endl;
 						//解析成功
 						//g_lpfnWriteLog(LOG_DEBUG, "[onProcessorStart]: packet parse success");
 						m_application->onMarketData(carCbs.getFieldMapPtr(), listener.getTemplateId());
 					}
 					else
 					{
-						m_fDecoding << "[onProcessorStart]: parse fail, left:" << len << std::endl;
+						m_fLog << "[onProcessorStart]: parse fail, left:" << len << std::endl;
 						break;
 					}
 					//pBuf += listener.bufferOffset();
@@ -335,21 +365,6 @@ namespace MDP
 		*/
 	}
 
-	void Initiator::connectMulticast()
-	{
-		ChannelIDs::iterator i = m_channelIDs.begin();
-		for ( ; i != m_channelIDs.end(); i++ )
-		{
-			//g_lpfnWriteLog(LOG_INFO, "Connecting to Channel ID[%d]\n", *i);
-			//doConnectToRealTime( *i );
-			Channels::iterator j = m_channels.find( *i );
-			if (j != m_channels.end())
-			{
-				j->second->subscribeInstrument();
-			}
-		}
-	}
-
 	bool Initiator::doConnectToRealTime( const ChannelID c )
 	{
 		Channels::iterator i = m_channels.find( c );
@@ -358,8 +373,6 @@ namespace MDP
 
 		Channel* pChannel = i->second;
 
-		try
-		{
 			///Incremental UDP Feed A
 			std::string str;
 			std::stringstream ss;
@@ -368,7 +381,9 @@ namespace MDP
 			str += "IA";
 			ConnectionIDtoInfo::iterator j = m_connectionIDtoInfo.find(str);
 			if (j == m_connectionIDtoInfo.end())
-				throw ConfigError("can't find IA connection info");
+				return false;
+				//throw ConfigError("can't find IA connection info");
+
 			ConnectionInfo& cIA = j->second;
 
 			int result = m_connector.UDPconnect( cIA.ip, atoi(cIA.port.c_str()), m_localInterface );
@@ -383,7 +398,6 @@ namespace MDP
 				if ( iter != m_socketToSocketInfo.end())
 					delete iter->second; 
 				m_socketToSocketInfo[result] = pSocketInfoIA;
-				
 			}
 
 			///Incremental UDP Feed B
@@ -394,7 +408,8 @@ namespace MDP
 			str += "IB";
 			j = m_connectionIDtoInfo.find(str);
 			if (j == m_connectionIDtoInfo.end())
-				throw ConfigError("can't find IB connection info");
+				return false;
+			//	throw ConfigError("can't find IB connection info");
 			ConnectionInfo& cIB = j->second;
 			result = m_connector.UDPconnect( cIB.ip, atoi(cIB.port.c_str()), m_localInterface );
 			if ( result != -1)
@@ -409,13 +424,6 @@ namespace MDP
 					delete iter->second; 
 				m_socketToSocketInfo[result] = pSocketInfoIB;
 			}
-		}
-		catch (std::exception& )
-		{
-			//m_fLog << e.what() << std::endl;
-			//g_lpfnWriteLog(LOG_WARNING, "%s\n", e.what());
-			return false; 
-		}
 
 		return true;
 	}
@@ -428,11 +436,10 @@ namespace MDP
 		{
 			if (!m_onRetransmission)
 			{
-				try
-				{
 					Channels::iterator i = m_channels.find(channelID);
 					if (i == m_channels.end())
-						throw ConfigError("can't find channel");
+						return false;
+					//	throw ConfigError("can't find channel");
 					Channel* pChannel = i->second;
 					std::string str;
 					std::stringstream ss;
@@ -441,7 +448,8 @@ namespace MDP
 					str += "H0A";
 					ConnectionIDtoInfo::iterator j = m_connectionIDtoInfo.find(str);
 					if (j == m_connectionIDtoInfo.end())
-						throw ConfigError("can't find H0A connection info");
+						return false;
+					//	throw ConfigError("can't find H0A connection info");
 					ConnectionInfo& cH0A = j->second;
 
 					//pChannel->onEvent("connect to "+ pConnectonInfo->hostip + " on port " + pConnectonInfo->port);
@@ -461,28 +469,21 @@ namespace MDP
 						//发起连接，创建会话后认为已经启动
 						m_onRetransmission = true;
 					}
-				}
-				catch (std::exception& )
-				{
-					//m_fLog << e.what() << std::endl;
-					//g_lpfnWriteLog(LOG_WARNING, "%s\n", e.what());
-					return false; 
-				}
+				
 				return true;
 			}
 		}
 		return false;
 	}
 
-	bool Initiator::doConnectToInstDef( const ChannelID c )
+	bool Initiator::subscribeInstrumentDefinition( const ChannelID c )
 	{
 		Channels::iterator i = m_channels.find( c );
 		if (i == m_channels.end())
 			return false;
 
 		Channel* pChannel = i->second;
-		try
-		{
+
 			///Instrument Replay UDP Feed A
 			std::string str;
 			std::stringstream ss;
@@ -491,7 +492,8 @@ namespace MDP
 			str += "NA";
 			ConnectionIDtoInfo::iterator j = m_connectionIDtoInfo.find(str);
 			if (j == m_connectionIDtoInfo.end())
-				throw ConfigError("can't find NA connection info");
+				return false;
+			//	throw ConfigError("can't find NA connection info");
 			ConnectionInfo& cNA = j->second;
 			int result = m_connector.UDPconnect( cNA.ip, atoi(cNA.port.c_str()), m_localInterface );
 			if ( result != -1 )
@@ -506,18 +508,11 @@ namespace MDP
 					delete iter->second; 
 				m_socketToSocketInfo[result] = pSocketInfoNA;
 			}
-		}
-		catch (std::exception& )
-		{
-			//m_fLog << e.what() << std::endl;
-			//g_lpfnWriteLog(LOG_WARNING, "[Channel ID]:%d, [doConnectToInstDef]:%s\n", c, e.what());
-			return false; 
-		}
 
 		return true;
 	}
 
-	bool Initiator::doConnectToSnapShot( const ChannelID c )
+	bool Initiator::subscribeMarketRecovery( const ChannelID c )
 	{
 		Channels::iterator i = m_channels.find( c );
 		if (i == m_channels.end())
@@ -528,8 +523,6 @@ namespace MDP
 		//Log* log = channel->getLog();
 		//log->onEvent( "Connecting to " + address + " on port " + IntConvertor::convert((unsigned short)port) );
 
-		try
-		{
 			///Snapshot UDP Feed A
 			std::string str;
 			std::stringstream ss;
@@ -538,7 +531,8 @@ namespace MDP
 			str += "SA";
 			ConnectionIDtoInfo::iterator j = m_connectionIDtoInfo.find(str);
 			if (j == m_connectionIDtoInfo.end())
-				throw ConfigError("can't find SA connection info");
+				return false;
+			//	throw ConfigError("can't find SA connection info");
 			ConnectionInfo& cSA = j->second;
 			int result = m_connector.UDPconnect( cSA.ip, atoi(cSA.port.c_str()), m_localInterface );
 			if (result != -1)
@@ -554,18 +548,10 @@ namespace MDP
 				m_socketToSocketInfo[result] = pSocketInfoSA;
 			}
 
-		}
-		catch (std::exception& )
-		{
-			//m_fLog << e.what() << std::endl;
-			//g_lpfnWriteLog(LOG_WARNING, "[Channel ID]:%d, [doConnectToSnapShot]:%s\n", c, e.what());
-			return false; 
-		}
-
 		return true;
 	}
 
-	bool Initiator::disConnectMulticast(const int sock)
+	bool Initiator::unsubscribe(const int sock)
 	{
 		MapSocketToSocketInfo::iterator i = m_socketToSocketInfo.find(sock);
 		if (i != m_socketToSocketInfo.end())
@@ -657,7 +643,6 @@ namespace MDP
 		{
 			//if (m_session->processQueue())
 				//m_session->unsignal();
-
 		}
 	}
 
@@ -746,29 +731,4 @@ namespace MDP
 		return 0;
 	}
 
-	/*
-	void Initiator::onProcess()
-	{
-	Locker l(m_mutex);
-	char* msg = m_msgQueue.front();
-
-	m_QuoteManager.onUpdate( msg );
-
-	delete []msg;
-	m_msgQueue.pop();
-	}
-	*/
-
-	/*
-	void Initiator::pushMsg(Message& msg)
-	{
-	Locker l(m_mutex);
-	UINT16 nSize = msg.getpMsgHeader()->MsgSize;
-	char* p = (char* )msg.getpMsgHeader();
-	char* pmsg = new char[nSize];
-	memcpy( pmsg, p, (size_t)nSize );
-	m_msgQueue.push(pmsg);
-	}
-
-	*/
 }
