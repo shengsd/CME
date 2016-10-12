@@ -38,6 +38,9 @@ namespace MDP
 
 		~Initiator();
 
+		//日志函数
+		void writeLog(char* szFormat, ...);
+
 		//启动
 		int start( ConfigStruct* configStruct, Application* application );
 
@@ -177,6 +180,9 @@ namespace MDP
 		//map: Socket -> pChannel 和 connectionType
 		MapSocketToSocketInfo m_socketToSocketInfo;
 
+		//禁止重复启动
+		volatile LONG m_bStopped;
+
 		//启动接收数据线程
 		static unsigned int _stdcall receiverThread( void* p );
 
@@ -204,7 +210,6 @@ namespace MDP
 		bool m_onRetransmission;
 
 		//引擎关闭事件
-		volatile BOOL m_bStop;
 		HANDLE m_hEventStop;
 
 		//行情数据包指示

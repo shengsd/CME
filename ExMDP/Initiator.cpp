@@ -12,11 +12,9 @@ namespace MDP
 		m_onRetransmission(false)
 	{
 		InitializeCriticalSection( &m_mutex );
-		//创建引擎停止指令事件
-		m_hEventStop = CreateEvent( NULL, TRUE, TRUE, NULL );
-		//创建数据包待处理事件
 		m_hEventData = CreateEvent( NULL, TRUE, FALSE, NULL );
-		m_bStop = TRUE;
+		m_hEventStop = CreateEvent( NULL, TRUE, FALSE, NULL );
+		m_bStopped = TRUE;
 		m_session = NULL;
 		time(&m_lastTimeOut);
 	}
@@ -29,6 +27,20 @@ namespace MDP
 		m_fLog.close();
 	}
 
+	void Initiator::writeLog(char* szFormat, ...)
+	{
+		char buffer[256];
+		SYSTEMTIME st;
+		GetLocalTime(&st);
+		sprintf(buffer, "%04d%02d%02d %02d:%02d:%02d:%03d - ", st.wYear, 
+			st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
+		va_list args;
+		va_start (args, szFormat);
+		vsprintf (buffer+strlen(buffer), szFormat, args);
+		va_end (args);
+		m_fLog << buffer << std::endl;
+	}
+
 	int Initiator::start( ConfigStruct* configStruct, Application* application)
 	{
 		if (configStruct == NULL)
@@ -39,11 +51,12 @@ namespace MDP
 			return 1;
 		}
 
-		if (!m_bStop)
+		if (!m_bStopped)
 		{
 			strcpy(configStruct->errorInfo, "[start]: failed! Already started!\n");
 			return 1;
 		}
+		ResetEvent(m_hEventStop);
 
 		m_configFile.assign(configStruct->configFile);
 		m_localInterface.assign(configStruct->localInterface);
@@ -59,7 +72,7 @@ namespace MDP
 		SYSTEMTIME st;
 		GetSystemTime(&st);
 		sprintf(szLog, "%s\\MDP_%02d.log", szLog, st.wDay);
-		m_fLog.open(szLog, std::ios::out | std::ios::binary | std::ios::app );
+		m_fLog.open(szLog, std::ofstream::app );
 		if ( !m_fLog.is_open() )
 		{
 			strcpy(configStruct->errorInfo, "[start]: Open log file failed!\n");
@@ -155,15 +168,14 @@ namespace MDP
 			return 1;
 		}
 
-		ResetEvent(m_hEventStop);
-		m_bStop = FALSE;
+		m_bStopped = FALSE;
 		return 0;
 	}
 
 
 	int Initiator::stop()
 	{
-		if (m_bStop)
+		if (m_bStopped)
 			return 1;
 		//m_fLog << "[Initiator]: stop called\n";
 		SetEvent(m_hEventStop);
@@ -200,8 +212,8 @@ namespace MDP
 		//ConnectionIDtoInfo::iterator k = m_connectionIDtoInfo.begin();
 		//for ( ; k != m_connectionIDtoInfo.end(); ++k )
 		//{
-			//清空Channel连接信息
-			//delete k->second;
+		//清空Channel连接信息
+		//delete k->second;
 		//}
 
 		//g_lpfnWriteLog(LOG_DEBUG, "m_channels.size:%d\n", m_channels.size());
@@ -215,8 +227,9 @@ namespace MDP
 			delete p;
 		}
 
+		m_fLog.close();
 		//m_fLog << "Engine Stopped..." << std::endl;
-		m_bStop = TRUE;
+		m_bStopped = TRUE;
 		return 0;
 	}
 
@@ -241,11 +254,13 @@ namespace MDP
 
 		while (WaitForSingleObject(m_hEventStop, 0) != WAIT_OBJECT_0)
 		{
+			static int count = 0;
 			m_connector.block(*this, false, 1);
+			writeLog( "[onReceiverStart]: inLoop %d",  ++count);
 		}
 
 		//g_lpfnWriteLog(LOG_DEBUG, "Receiver thread exit...\n");
-		//m_fLog << "Receiver thread exit...\n";
+		writeLog("Receiver thread exit...");
 	}
 
 	void Initiator::onProcessorStart()
@@ -269,7 +284,8 @@ namespace MDP
 				//g_lpfnWriteLog(LOG_DEBUG, "[onProcessorStart]: packet seqNum:%d", packet.getSeqNum());
 
 				m_fLog << "[onProcessorStart]: packet seqNum:" << packet.getSeqNum() << std::endl;
-				
+				writeLog("[onProcessorStart]: packet seqNum:%d", packet.getSeqNum() );
+
 				char* pBuf = packet.getPacketPointer() + 12;//sizeof(PacketHeader);
 				int len = packet.getPacketSize() - 12;
 				Listener listener;
@@ -288,14 +304,14 @@ namespace MDP
 
 					if (carCbs.getStatus())
 					{
-						m_fLog << "[onProcessorStart]: parse success, message template ID:"<< listener.getTemplateId() << std::endl;
+						writeLog("[onProcessorStart]: parse success, message template ID:%d", listener.getTemplateId());
 						//解析成功
 						//g_lpfnWriteLog(LOG_DEBUG, "[onProcessorStart]: packet parse success");
 						m_application->onMarketData(carCbs.getFieldMapPtr(), listener.getTemplateId());
 					}
 					else
 					{
-						m_fLog << "[onProcessorStart]: parse fail, left:" << len << std::endl;
+						writeLog("[onProcessorStart]: parse fail, left:%d", len);
 						break;
 					}
 					//pBuf += listener.bufferOffset();
@@ -303,64 +319,64 @@ namespace MDP
 					pBuf += uMsgSize-2;
 					len -= uMsgSize-2;
 				}
-				
+
 				//删除已处理数据包
 				PopPacket();
 			}
 		}
 		//m_fLog << "[onProcessorStart]: left:" << m_packetQueue.size() << std::endl;
-		//m_fLog << "Processor thread exit...\n" ;
+		writeLog("Processor thread exit...");
 		//g_lpfnWriteLog(LOG_DEBUG, "Processor thread exit...\n");
 		/*
 		//int num = 0;
 		//int packetsNo = 0;
 		while (!isStopped())
 		{
-			Channels::iterator i = m_channels.begin();
-			for ( ; i != m_channels.end(); ++i )
-			{
-				Channel* p = i->second;
+		Channels::iterator i = m_channels.begin();
+		for ( ; i != m_channels.end(); ++i )
+		{
+		Channel* p = i->second;
 
-				num = (p->m_packetQueue.size() <= 100) ? p->m_packetQueue.size() : 100;
-				while ( num )
-				{
-					Packet& packet = p->m_packetQueue.front();
-					char* data = packet.getPacketPointer();
+		num = (p->m_packetQueue.size() <= 100) ? p->m_packetQueue.size() : 100;
+		while ( num )
+		{
+		Packet& packet = p->m_packetQueue.front();
+		char* data = packet.getPacketPointer();
 
-					char* pBuf = data + 12;
-					int len = packet.getPacketSize() - 12;
+		char* pBuf = data + 12;
+		int len = packet.getPacketSize() - 12;
 
-					Listener listener;
-					while ( len > 0 )
-					{
-						//Message Header
-						//	--Message Size 2Bytes
-						pBuf += 2;
-						len -= 2;
-						CarCallbacks carCbs(listener);
-						listener.dispatchMessageByHeader(m_irRepo.header(), &m_irRepo)
-							.resetForDecode(pBuf , len)
-							.subscribe(&carCbs, &carCbs, &carCbs);
+		Listener listener;
+		while ( len > 0 )
+		{
+		//Message Header
+		//	--Message Size 2Bytes
+		pBuf += 2;
+		len -= 2;
+		CarCallbacks carCbs(listener);
+		listener.dispatchMessageByHeader(m_irRepo.header(), &m_irRepo)
+		.resetForDecode(pBuf , len)
+		.subscribe(&carCbs, &carCbs, &carCbs);
 
-						if (carCbs.getStatus())
-						{
-							//解析成功
-							m_application->onMarketData(carCbs.getFieldMapPtr(), listener.getTemplateId());
-						}
-						pBuf += listener.bufferOffset();
-						len -= listener.bufferOffset();
-					}
+		if (carCbs.getStatus())
+		{
+		//解析成功
+		m_application->onMarketData(carCbs.getFieldMapPtr(), listener.getTemplateId());
+		}
+		pBuf += listener.bufferOffset();
+		len -= listener.bufferOffset();
+		}
 
-					delete[] pBuf;
-					p->m_packetQueue.pop();
-					++packetsNo;
-					--num;
-				}
-			}
-			if (packetsNo)
-				Sleep(1000);
-			else
-				packetsNo = 0;
+		delete[] pBuf;
+		p->m_packetQueue.pop();
+		++packetsNo;
+		--num;
+		}
+		}
+		if (packetsNo)
+		Sleep(1000);
+		else
+		packetsNo = 0;
 		}
 		*/
 	}
@@ -373,57 +389,57 @@ namespace MDP
 
 		Channel* pChannel = i->second;
 
-			///Incremental UDP Feed A
-			std::string str;
-			std::stringstream ss;
-			ss << c;
-			ss >> str;
-			str += "IA";
-			ConnectionIDtoInfo::iterator j = m_connectionIDtoInfo.find(str);
-			if (j == m_connectionIDtoInfo.end())
-				return false;
-				//throw ConfigError("can't find IA connection info");
+		///Incremental UDP Feed A
+		std::string str;
+		std::stringstream ss;
+		ss << c;
+		ss >> str;
+		str += "IA";
+		ConnectionIDtoInfo::iterator j = m_connectionIDtoInfo.find(str);
+		if (j == m_connectionIDtoInfo.end())
+			return false;
+		//throw ConfigError("can't find IA connection info");
 
-			ConnectionInfo& cIA = j->second;
+		ConnectionInfo& cIA = j->second;
 
-			int result = m_connector.UDPconnect( cIA.ip, atoi(cIA.port.c_str()), m_localInterface );
-			if ( result != -1)
-			{
-				SocketInfo* pSocketInfoIA = new SocketInfo;
-				pSocketInfoIA->pChannel = pChannel;
-				pSocketInfoIA->iConnectionType = 1;
-				pSocketInfoIA->multiaddr = cIA.ip;
-				pSocketInfoIA->interface = m_localInterface;
-				MapSocketToSocketInfo::iterator iter = m_socketToSocketInfo.find(result);
-				if ( iter != m_socketToSocketInfo.end())
-					delete iter->second; 
-				m_socketToSocketInfo[result] = pSocketInfoIA;
-			}
+		int result = m_connector.UDPconnect( cIA.ip, atoi(cIA.port.c_str()), m_localInterface );
+		if ( result != -1)
+		{
+			SocketInfo* pSocketInfoIA = new SocketInfo;
+			pSocketInfoIA->pChannel = pChannel;
+			pSocketInfoIA->iConnectionType = 1;
+			pSocketInfoIA->multiaddr = cIA.ip;
+			pSocketInfoIA->interface = m_localInterface;
+			MapSocketToSocketInfo::iterator iter = m_socketToSocketInfo.find(result);
+			if ( iter != m_socketToSocketInfo.end())
+				delete iter->second; 
+			m_socketToSocketInfo[result] = pSocketInfoIA;
+		}
 
-			///Incremental UDP Feed B
-			str.clear();
-			ss.clear();
-			ss << c;
-			ss >> str;
-			str += "IB";
-			j = m_connectionIDtoInfo.find(str);
-			if (j == m_connectionIDtoInfo.end())
-				return false;
-			//	throw ConfigError("can't find IB connection info");
-			ConnectionInfo& cIB = j->second;
-			result = m_connector.UDPconnect( cIB.ip, atoi(cIB.port.c_str()), m_localInterface );
-			if ( result != -1)
-			{
-				SocketInfo* pSocketInfoIB = new SocketInfo;
-				pSocketInfoIB->pChannel = pChannel;
-				pSocketInfoIB->iConnectionType = 1;
-				pSocketInfoIB->multiaddr = cIB.ip;
-				pSocketInfoIB->interface = m_localInterface;
-				MapSocketToSocketInfo::iterator iter = m_socketToSocketInfo.find(result);
-				if ( iter != m_socketToSocketInfo.end())
-					delete iter->second; 
-				m_socketToSocketInfo[result] = pSocketInfoIB;
-			}
+		///Incremental UDP Feed B
+		str.clear();
+		ss.clear();
+		ss << c;
+		ss >> str;
+		str += "IB";
+		j = m_connectionIDtoInfo.find(str);
+		if (j == m_connectionIDtoInfo.end())
+			return false;
+		//	throw ConfigError("can't find IB connection info");
+		ConnectionInfo& cIB = j->second;
+		result = m_connector.UDPconnect( cIB.ip, atoi(cIB.port.c_str()), m_localInterface );
+		if ( result != -1)
+		{
+			SocketInfo* pSocketInfoIB = new SocketInfo;
+			pSocketInfoIB->pChannel = pChannel;
+			pSocketInfoIB->iConnectionType = 1;
+			pSocketInfoIB->multiaddr = cIB.ip;
+			pSocketInfoIB->interface = m_localInterface;
+			MapSocketToSocketInfo::iterator iter = m_socketToSocketInfo.find(result);
+			if ( iter != m_socketToSocketInfo.end())
+				delete iter->second; 
+			m_socketToSocketInfo[result] = pSocketInfoIB;
+		}
 
 		return true;
 	}
@@ -436,40 +452,40 @@ namespace MDP
 		{
 			if (!m_onRetransmission)
 			{
-					Channels::iterator i = m_channels.find(channelID);
-					if (i == m_channels.end())
-						return false;
-					//	throw ConfigError("can't find channel");
-					Channel* pChannel = i->second;
-					std::string str;
-					std::stringstream ss;
-					ss << channelID;
-					ss >> str;
-					str += "H0A";
-					ConnectionIDtoInfo::iterator j = m_connectionIDtoInfo.find(str);
-					if (j == m_connectionIDtoInfo.end())
-						return false;
-					//	throw ConfigError("can't find H0A connection info");
-					ConnectionInfo& cH0A = j->second;
+				Channels::iterator i = m_channels.find(channelID);
+				if (i == m_channels.end())
+					return false;
+				//	throw ConfigError("can't find channel");
+				Channel* pChannel = i->second;
+				std::string str;
+				std::stringstream ss;
+				ss << channelID;
+				ss >> str;
+				str += "H0A";
+				ConnectionIDtoInfo::iterator j = m_connectionIDtoInfo.find(str);
+				if (j == m_connectionIDtoInfo.end())
+					return false;
+				//	throw ConfigError("can't find H0A connection info");
+				ConnectionInfo& cH0A = j->second;
 
-					//pChannel->onEvent("connect to "+ pConnectonInfo->hostip + " on port " + pConnectonInfo->port);
-					pChannel->onEvent("connect to "+ cH0A.hostip + " on port " + cH0A.port);
+				//pChannel->onEvent("connect to "+ pConnectonInfo->hostip + " on port " + pConnectonInfo->port);
+				pChannel->onEvent("connect to "+ cH0A.hostip + " on port " + cH0A.port);
 
-					int result = m_connector.TCPconnect( cH0A.hostip, atoi(cH0A.port.c_str()) );
-					if ( result != -1 )
-					{
-						SocketInfo* pSocketInfoIA = new SocketInfo;
-						pSocketInfoIA->pChannel = pChannel;
-						pSocketInfoIA->iConnectionType = 4;
-						MapSocketToSocketInfo::iterator iter = m_socketToSocketInfo.find(result);
-						if ( iter != m_socketToSocketInfo.end())
-							delete iter->second; 
-						m_socketToSocketInfo[result] = pSocketInfoIA;
-						m_session = new Session(pChannel, result, &m_connector, m_username, m_password, beginSeqNum, endSeqNum);
-						//发起连接，创建会话后认为已经启动
-						m_onRetransmission = true;
-					}
-				
+				int result = m_connector.TCPconnect( cH0A.hostip, atoi(cH0A.port.c_str()) );
+				if ( result != -1 )
+				{
+					SocketInfo* pSocketInfoIA = new SocketInfo;
+					pSocketInfoIA->pChannel = pChannel;
+					pSocketInfoIA->iConnectionType = 4;
+					MapSocketToSocketInfo::iterator iter = m_socketToSocketInfo.find(result);
+					if ( iter != m_socketToSocketInfo.end())
+						delete iter->second; 
+					m_socketToSocketInfo[result] = pSocketInfoIA;
+					m_session = new Session(pChannel, result, &m_connector, m_username, m_password, beginSeqNum, endSeqNum);
+					//发起连接，创建会话后认为已经启动
+					m_onRetransmission = true;
+				}
+
 				return true;
 			}
 		}
@@ -484,30 +500,30 @@ namespace MDP
 
 		Channel* pChannel = i->second;
 
-			///Instrument Replay UDP Feed A
-			std::string str;
-			std::stringstream ss;
-			ss << c;
-			ss >> str;
-			str += "NA";
-			ConnectionIDtoInfo::iterator j = m_connectionIDtoInfo.find(str);
-			if (j == m_connectionIDtoInfo.end())
-				return false;
-			//	throw ConfigError("can't find NA connection info");
-			ConnectionInfo& cNA = j->second;
-			int result = m_connector.UDPconnect( cNA.ip, atoi(cNA.port.c_str()), m_localInterface );
-			if ( result != -1 )
-			{
-				SocketInfo* pSocketInfoNA = new SocketInfo;
-				pSocketInfoNA->pChannel = pChannel;
-				pSocketInfoNA->iConnectionType = 2;
-				pSocketInfoNA->multiaddr = cNA.ip;
-				pSocketInfoNA->interface = m_localInterface;
-				MapSocketToSocketInfo::iterator iter = m_socketToSocketInfo.find(result);
-				if ( iter != m_socketToSocketInfo.end())
-					delete iter->second; 
-				m_socketToSocketInfo[result] = pSocketInfoNA;
-			}
+		///Instrument Replay UDP Feed A
+		std::string str;
+		std::stringstream ss;
+		ss << c;
+		ss >> str;
+		str += "NA";
+		ConnectionIDtoInfo::iterator j = m_connectionIDtoInfo.find(str);
+		if (j == m_connectionIDtoInfo.end())
+			return false;
+		//	throw ConfigError("can't find NA connection info");
+		ConnectionInfo& cNA = j->second;
+		int result = m_connector.UDPconnect( cNA.ip, atoi(cNA.port.c_str()), m_localInterface );
+		if ( result != -1 )
+		{
+			SocketInfo* pSocketInfoNA = new SocketInfo;
+			pSocketInfoNA->pChannel = pChannel;
+			pSocketInfoNA->iConnectionType = 2;
+			pSocketInfoNA->multiaddr = cNA.ip;
+			pSocketInfoNA->interface = m_localInterface;
+			MapSocketToSocketInfo::iterator iter = m_socketToSocketInfo.find(result);
+			if ( iter != m_socketToSocketInfo.end())
+				delete iter->second; 
+			m_socketToSocketInfo[result] = pSocketInfoNA;
+		}
 
 		return true;
 	}
@@ -523,30 +539,30 @@ namespace MDP
 		//Log* log = channel->getLog();
 		//log->onEvent( "Connecting to " + address + " on port " + IntConvertor::convert((unsigned short)port) );
 
-			///Snapshot UDP Feed A
-			std::string str;
-			std::stringstream ss;
-			ss << c;
-			ss >> str;
-			str += "SA";
-			ConnectionIDtoInfo::iterator j = m_connectionIDtoInfo.find(str);
-			if (j == m_connectionIDtoInfo.end())
-				return false;
-			//	throw ConfigError("can't find SA connection info");
-			ConnectionInfo& cSA = j->second;
-			int result = m_connector.UDPconnect( cSA.ip, atoi(cSA.port.c_str()), m_localInterface );
-			if (result != -1)
-			{
-				SocketInfo* pSocketInfoSA = new SocketInfo;
-				pSocketInfoSA->pChannel = pChannel;
-				pSocketInfoSA->iConnectionType = 3;
-				pSocketInfoSA->multiaddr = cSA.ip;
-				pSocketInfoSA->interface = m_localInterface;
-				MapSocketToSocketInfo::iterator iter = m_socketToSocketInfo.find(result);
-				if ( iter != m_socketToSocketInfo.end())
-					delete iter->second; 
-				m_socketToSocketInfo[result] = pSocketInfoSA;
-			}
+		///Snapshot UDP Feed A
+		std::string str;
+		std::stringstream ss;
+		ss << c;
+		ss >> str;
+		str += "SA";
+		ConnectionIDtoInfo::iterator j = m_connectionIDtoInfo.find(str);
+		if (j == m_connectionIDtoInfo.end())
+			return false;
+		//	throw ConfigError("can't find SA connection info");
+		ConnectionInfo& cSA = j->second;
+		int result = m_connector.UDPconnect( cSA.ip, atoi(cSA.port.c_str()), m_localInterface );
+		if (result != -1)
+		{
+			SocketInfo* pSocketInfoSA = new SocketInfo;
+			pSocketInfoSA->pChannel = pChannel;
+			pSocketInfoSA->iConnectionType = 3;
+			pSocketInfoSA->multiaddr = cSA.ip;
+			pSocketInfoSA->interface = m_localInterface;
+			MapSocketToSocketInfo::iterator iter = m_socketToSocketInfo.find(result);
+			if ( iter != m_socketToSocketInfo.end())
+				delete iter->second; 
+			m_socketToSocketInfo[result] = pSocketInfoSA;
+		}
 
 		return true;
 	}
@@ -642,7 +658,7 @@ namespace MDP
 		if (pSocketInfo->iConnectionType == 4)
 		{
 			//if (m_session->processQueue())
-				//m_session->unsignal();
+			//m_session->unsignal();
 		}
 	}
 
@@ -701,12 +717,12 @@ namespace MDP
 		//30秒以上没有收到数据，关闭引擎
 		if ( (now - m_lastTimeOut) >= 15 )
 		{
-			if (m_bLog)
-			{
-				g_lpfnWriteLog(LOG_WARNING, "[onTimeout]: No packet received after 15 seconds.\n");
-				m_bLog = FALSE;
-			}
-		}		else		{			g_lpfnWriteLog(LOG_DEBUG, "[onTimeout]: select() timeout...\n");			if (!m_bLog)				m_bLog = TRUE;		}		*/		/*
+		if (m_bLog)
+		{
+		g_lpfnWriteLog(LOG_WARNING, "[onTimeout]: No packet received after 15 seconds.\n");
+		m_bLog = FALSE;
+		}
+		}		else		{		g_lpfnWriteLog(LOG_DEBUG, "[onTimeout]: select() timeout...\n");		if (!m_bLog)		m_bLog = TRUE;		}		*/		/*
 		SocketToUDPConnections::iterator i;
 		for ( i= m_socketToUDPConnections.begin(); i != m_socketToUDPConnections.end(); ++i )
 		{

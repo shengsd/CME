@@ -549,7 +549,35 @@ void CmfcDlg::OnBnClickedTrade()
 void CmfcDlg::OnBnClickedQuote()
 {
 	// TODO: 在此添加控件通知处理程序代码
-	AfxBeginThread(Quote, this);
+	//AfxBeginThread(Quote, this);
+	static BOOL bQuote= FALSE;
+	this->GetDlgItem(IDC_BUTTON5)->EnableWindow(FALSE);
+	if (bQuote)//stop
+	{
+		if (!g_worker.stopMktDt())
+		{
+			this->GetDlgItem(IDC_BUTTON5)->SetWindowTextA(_T("Quote ON"));
+			this->GetDlgItem(IDC_BUTTON5)->EnableWindow(TRUE);
+			bQuote = FALSE;
+		}
+		else
+		{
+			this->GetDlgItem(IDC_BUTTON5)->EnableWindow(TRUE);
+		}
+	}
+	else//start
+	{
+		if (!g_worker.startMktDt())
+		{
+			this->GetDlgItem(IDC_BUTTON5)->SetWindowTextA(_T("Quote OFF"));
+			this->GetDlgItem(IDC_BUTTON5)->EnableWindow(TRUE);
+			bQuote = TRUE;
+		}
+		else
+		{
+			this->GetDlgItem(IDC_BUTTON5)->EnableWindow(TRUE);
+		}
+	}
 }
 
 
