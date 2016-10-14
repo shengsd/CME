@@ -11,7 +11,7 @@ namespace MDP
 	 m_InstDefNextSeqNum( 1 ),
 	 m_SnapShotNextSeqNum( 1 ),
 	 m_LastMsgSeqNumProcessed( 1 ),
-	 m_bOnInstrumentRecovery( false ),
+	 m_bOnInstrumentDefinition( false ),
 	 //m_bOnIncremental( false ),
 	 m_bOnMarketRecovery( false ),
 	 //m_InstDefComplete( false ),
@@ -24,9 +24,9 @@ namespace MDP
 		ss >> str;
 		file_mkdir(str.c_str());
 		m_packetsFileName = str + "/packets.log";
-		m_fPackets.open( m_packetsFileName.c_str(), std::ios::out | std::ios::binary | std::ios::app );
+		m_fPackets.open( m_packetsFileName.c_str(), std::ios::app );
 		m_eventsFileName = str + "/events.log";
-		m_fEvents.open(m_eventsFileName.c_str(), std::ios::out | std::ios::app );
+		m_fEvents.open(m_eventsFileName.c_str(), std::ios::app );
 	}
 
 	Channel::~Channel(void)
@@ -133,7 +133,7 @@ namespace MDP
 	void Channel::processInstDefPacket(Packet& packet, int sock)
 	{
 		//Recovery状态中才处理
-		if ( !isOnInstrumentRecovery() )
+		if ( !isOnInstrumentDefinition() )
 		{
 			m_fEvents << "the channel is not on Instrument Recovery, ignore this packet" << std::endl;
 			return;
@@ -160,7 +160,7 @@ namespace MDP
 
 		checkInstDefSpoolTimer(sock);
 
-		if (!isOnInstrumentRecovery())
+		if (!isOnInstrumentDefinition())
 		{
 			resetInstrumentDefinition();
 			m_fEvents << "Instrument Recovery completed, reset Instrument Recovery Feed..." << std::endl;
@@ -425,13 +425,11 @@ namespace MDP
 				{
 					if (m_InstDefProcessedNum == pField->getUInt() )
 					{
-//#ifdef _DEBUG
 						m_fEvents << "[processInstDefPacket]InstDefCompleted, received " << m_InstDefProcessedNum << " messages." << std::endl;
-//#endif
 						//setInstDefComplete(true);
 						unsubscribe(sock);
 						setOnInstrumentDefinition(false);
-						//收完合约后，收快照
+						//收完合约后，订阅实时行情和快照
 						subscribeIncremental();
 						subscribeMarketRecovery();
 					}

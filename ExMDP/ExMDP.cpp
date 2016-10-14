@@ -8,11 +8,11 @@ MDP::Initiator p;
 
 EXMDP_API int StartEngine( ConfigStruct* configStruct, Application* application )
 {
-	return p.start(configStruct, application);
+	return p.Start(configStruct, application);
 }
 
 EXMDP_API int StopEngine()
 {
-	return p.stop();
+	return p.Stop();
 }
 

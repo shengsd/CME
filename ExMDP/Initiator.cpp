@@ -24,12 +24,11 @@ namespace MDP
 		DeleteCriticalSection( &m_mutex );
 		CloseHandle(m_hEventStop);
 		CloseHandle(m_hEventData);
-		m_fLog.close();
 	}
 
-	void Initiator::writeLog(char* szFormat, ...)
+	void Initiator::WriteLog(char* szFormat, ...)
 	{
-		char buffer[256];
+		char buffer[1024];
 		SYSTEMTIME st;
 		GetLocalTime(&st);
 		sprintf(buffer, "%04d%02d%02d %02d:%02d:%02d:%03d - ", st.wYear, 
@@ -41,19 +40,19 @@ namespace MDP
 		m_fLog << buffer << std::endl;
 	}
 
-	int Initiator::start( ConfigStruct* configStruct, Application* application)
+	int Initiator::Start( ConfigStruct* configStruct, Application* application)
 	{
 		if (configStruct == NULL)
 			return 1;
 		if (application == NULL)
 		{
-			strcpy(configStruct->errorInfo, "Invalid Param: Application* (NULL)");
+			strcpy(configStruct->errorInfo, "[Start]: Invalid Param: Application* (NULL)");
 			return 1;
 		}
 
 		if (!m_bStopped)
 		{
-			strcpy(configStruct->errorInfo, "[start]: failed! Already started!\n");
+			strcpy(configStruct->errorInfo, "[Start]: failed! Already started!\n");
 			return 1;
 		}
 		ResetEvent(m_hEventStop);
@@ -75,19 +74,18 @@ namespace MDP
 		m_fLog.open(szLog, std::ofstream::app );
 		if ( !m_fLog.is_open() )
 		{
-			strcpy(configStruct->errorInfo, "[start]: Open log file failed!\n");
+			strcpy(configStruct->errorInfo, "[Start]: Open log file failed!\n");
 			return 1;
 		}
 
 		//初始化，读取XML配置文件，创建Channel
-		//read config.xml file
 		TiXmlDocument doc( m_configFile.c_str() );
 
 		bool loadOkay = doc.LoadFile();
 
 		if ( !loadOkay )	//printf( "Could not load test file 'config.xml'. Error='%s'. Exiting.\n", doc.ErrorDesc() );
 		{
-			strcpy(configStruct->errorInfo, "[start]: Could not load config.xml 'config.xml'. Exiting.\n");
+			strcpy(configStruct->errorInfo, "[Start]: Could not load config.xml 'config.xml'. Exiting.\n");
 			return 1;
 		}
 
@@ -135,7 +133,7 @@ namespace MDP
 		//channel数量为0
 		if (!m_channelIDs.size())
 		{
-			strcpy(configStruct->errorInfo, "[initialize]: No Channel defined!\n");
+			strcpy(configStruct->errorInfo, "[Start]: No Channel defined!\n");
 			return 1;
 		}
 
@@ -150,21 +148,21 @@ namespace MDP
 		//读取SBE解析文件 templates_FixBinary.sbeir
 		if ( m_irRepo.loadFromFile( m_templateFile.c_str() ) == -1 || m_irRepoX.loadFromFile( m_templateFile.c_str() ) == -1 )
 		{
-			strcpy(configStruct->errorInfo, "[initialize]: could not load IR!\n");
+			strcpy(configStruct->errorInfo, "[Start]: Could not load IR!\n");
 			return 1;
 		}
 
 		//创建接收线程
 		if ( (m_hThreads[0] = (HANDLE)_beginthreadex(NULL, 0, &receiverThread, this, 0, NULL)) == 0 )
 		{
-			strcpy(configStruct->errorInfo, "[start]: Unable to spawn receiver thread!\n");
+			strcpy(configStruct->errorInfo, "[Start]: Unable to spawn receiver thread!\n");
 			return 1;
 		}
 
 		//创建处理线程
 		if ( (m_hThreads[1] = (HANDLE)_beginthreadex(NULL, 0, &processorThread, this, 0, NULL)) == 0 )
 		{
-			strcpy(configStruct->errorInfo, "[start]: Unable to spawn processor!\n");
+			strcpy(configStruct->errorInfo, "[Start]: Unable to spawn processor thread!\n");
 			return 1;
 		}
 
@@ -173,18 +171,17 @@ namespace MDP
 	}
 
 
-	int Initiator::stop()
+	int Initiator::Stop()
 	{
 		if (m_bStopped)
 			return 1;
-		//m_fLog << "[Initiator]: stop called\n";
+
 		SetEvent(m_hEventStop);
 
 		//等待接收线程退出
 		WaitForMultipleObjects(2, m_hThreads, TRUE, INFINITE);
 
 		//断开所有socket连接，清空连接信息
-		//g_lpfnWriteLog(LOG_DEBUG, "m_socketToSocketInfo.size:%d\n", m_socketToSocketInfo.size());
 		MapSocketToSocketInfo::iterator i; 
 		SocketInfo* p;
 		while (!m_socketToSocketInfo.empty())
@@ -201,41 +198,27 @@ namespace MDP
 			else
 			{
 				//断开组播连接，并delete i->second
-				//disConnectMulticast(i->first);
 				m_connector.UDPdisconnect(i->first, p->multiaddr, p->interface);
 			}
 			delete p;
 			m_socketToSocketInfo.erase(i);
 		}
 
-		//g_lpfnWriteLog(LOG_DEBUG, "m_connectionIDtoInfo.size:%d\n", m_connectionIDtoInfo.size());
-		//ConnectionIDtoInfo::iterator k = m_connectionIDtoInfo.begin();
-		//for ( ; k != m_connectionIDtoInfo.end(); ++k )
-		//{
-		//清空Channel连接信息
-		//delete k->second;
-		//}
-
-		//g_lpfnWriteLog(LOG_DEBUG, "m_channels.size:%d\n", m_channels.size());
 		Channels::iterator j = m_channels.begin();
 		for ( ; j != m_channels.end(); ++j )
 		{
 			//清空各个Channel中的缓存
-			Channel* p = j->second;
-			// 			p->clearPacketQueue();
-			// 			p->clearRealTimeSpool();
-			delete p;
+			delete j->second;
 		}
 
+		WriteLog("Engine Stopped");
 		m_fLog.close();
-		//m_fLog << "Engine Stopped..." << std::endl;
 		m_bStopped = TRUE;
 		return 0;
 	}
 
-	void Initiator::onReceiverStart()
+	void Initiator::ReceiveThread()
 	{
-		//m_fLog << "Receiver thread start...\n";
 		//TODO:加入组播分为两种情形，目前实现的是第2种
 		//1.Pre-Opening Startup
 		//2.Late Joiner Startup
@@ -243,8 +226,7 @@ namespace MDP
 		ChannelIDs::iterator i = m_channelIDs.begin();
 		for ( ; i != m_channelIDs.end(); i++ )
 		{
-			//g_lpfnWriteLog(LOG_INFO, "Connecting to Channel ID[%d]\n", *i);
-			//doConnectToRealTime( *i );
+			WriteLog("Subscribe to channel, id=%d", *i);
 			Channels::iterator j = m_channels.find( *i );
 			if (j != m_channels.end())
 			{
@@ -256,14 +238,13 @@ namespace MDP
 		{
 			static int count = 0;
 			m_connector.block(*this, false, 1);
-			writeLog( "[onReceiverStart]: inLoop %d",  ++count);
+			WriteLog( "[onReceiverStart]: inLoop %d",  ++count);
 		}
 
-		//g_lpfnWriteLog(LOG_DEBUG, "Receiver thread exit...\n");
-		writeLog("Receiver thread exit...");
+		WriteLog("[ReceiveThread]: Receiver thread exit");
 	}
 
-	void Initiator::onProcessorStart()
+	void Initiator::ProcessThread()
 	{
 		//m_fLog << "Processor thread start...\n" ;
 		HANDLE lpHandles[2];
@@ -273,7 +254,6 @@ namespace MDP
 		//程序没有终止并且有行情包未处理
 		while ((dwWaitResult = WaitForMultipleObjects(2, lpHandles, FALSE, INFINITE)) != WAIT_OBJECT_0)
 		{
-			//m_fDecoding << "[onProcessorStart]: left:";
 			if (dwWaitResult == WAIT_OBJECT_0 + 1)
 			{
 				//获取数据包
@@ -281,10 +261,7 @@ namespace MDP
 				if (FrontPacket(packet) == -1)
 					continue;
 
-				//g_lpfnWriteLog(LOG_DEBUG, "[onProcessorStart]: packet seqNum:%d", packet.getSeqNum());
-
-				m_fLog << "[onProcessorStart]: packet seqNum:" << packet.getSeqNum() << std::endl;
-				writeLog("[onProcessorStart]: packet seqNum:%d", packet.getSeqNum() );
+				WriteLog("[onProcessorStart]: packet seqNum:%d", packet.getSeqNum() );
 
 				char* pBuf = packet.getPacketPointer() + 12;//sizeof(PacketHeader);
 				int len = packet.getPacketSize() - 12;
@@ -304,18 +281,17 @@ namespace MDP
 
 					if (carCbs.getStatus())
 					{
-						writeLog("[onProcessorStart]: parse success, message template ID:%d", listener.getTemplateId());
+						WriteLog("[onProcessorStart]: parse success, message template ID:%d", listener.getTemplateId());
 						//解析成功
 						//g_lpfnWriteLog(LOG_DEBUG, "[onProcessorStart]: packet parse success");
 						m_application->onMarketData(carCbs.getFieldMapPtr(), listener.getTemplateId());
 					}
 					else
 					{
-						writeLog("[onProcessorStart]: parse fail, left:%d", len);
+						WriteLog("[onProcessorStart]: parse fail, left:%d", len);
 						break;
 					}
-					//pBuf += listener.bufferOffset();
-					//len -= listener.bufferOffset();
+
 					pBuf += uMsgSize-2;
 					len -= uMsgSize-2;
 				}
@@ -325,60 +301,7 @@ namespace MDP
 			}
 		}
 		//m_fLog << "[onProcessorStart]: left:" << m_packetQueue.size() << std::endl;
-		writeLog("Processor thread exit...");
-		//g_lpfnWriteLog(LOG_DEBUG, "Processor thread exit...\n");
-		/*
-		//int num = 0;
-		//int packetsNo = 0;
-		while (!isStopped())
-		{
-		Channels::iterator i = m_channels.begin();
-		for ( ; i != m_channels.end(); ++i )
-		{
-		Channel* p = i->second;
-
-		num = (p->m_packetQueue.size() <= 100) ? p->m_packetQueue.size() : 100;
-		while ( num )
-		{
-		Packet& packet = p->m_packetQueue.front();
-		char* data = packet.getPacketPointer();
-
-		char* pBuf = data + 12;
-		int len = packet.getPacketSize() - 12;
-
-		Listener listener;
-		while ( len > 0 )
-		{
-		//Message Header
-		//	--Message Size 2Bytes
-		pBuf += 2;
-		len -= 2;
-		CarCallbacks carCbs(listener);
-		listener.dispatchMessageByHeader(m_irRepo.header(), &m_irRepo)
-		.resetForDecode(pBuf , len)
-		.subscribe(&carCbs, &carCbs, &carCbs);
-
-		if (carCbs.getStatus())
-		{
-		//解析成功
-		m_application->onMarketData(carCbs.getFieldMapPtr(), listener.getTemplateId());
-		}
-		pBuf += listener.bufferOffset();
-		len -= listener.bufferOffset();
-		}
-
-		delete[] pBuf;
-		p->m_packetQueue.pop();
-		++packetsNo;
-		--num;
-		}
-		}
-		if (packetsNo)
-		Sleep(1000);
-		else
-		packetsNo = 0;
-		}
-		*/
+		WriteLog("Processor thread exit...");
 	}
 
 	bool Initiator::doConnectToRealTime( const ChannelID c )
@@ -443,7 +366,6 @@ namespace MDP
 
 		return true;
 	}
-
 
 	bool Initiator::GenerateRetransRequest( ChannelID channelID, unsigned beginSeqNum, unsigned endSeqNum )
 	{
@@ -736,14 +658,14 @@ namespace MDP
 	THREAD_PROC Initiator::receiverThread( void* p )
 	{
 		Initiator * pInitiator = static_cast < Initiator* > ( p );
-		pInitiator->onReceiverStart();
+		pInitiator->ReceiveThread();
 		return 0;
 	}
 
 	THREAD_PROC Initiator::processorThread( void* p )
 	{
 		Initiator * pInitiator = static_cast < Initiator* > ( p );
-		pInitiator->onProcessorStart();
+		pInitiator->ProcessThread();
 		return 0;
 	}
 

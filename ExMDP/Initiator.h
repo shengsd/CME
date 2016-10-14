@@ -39,13 +39,13 @@ namespace MDP
 		~Initiator();
 
 		//日志函数
-		void writeLog(char* szFormat, ...);
+		void WriteLog(char* szFormat, ...);
 
 		//启动
-		int start( ConfigStruct* configStruct, Application* application );
+		int Start( ConfigStruct* configStruct, Application* application );
 
 		//停止
-		int stop();
+		int Stop();
 
 		//接入合约定义组播
 		bool subscribeInstrumentDefinition( const ChannelID );
@@ -127,9 +127,9 @@ namespace MDP
 
 	private:
 		//接收数据线程运行中
-		void onReceiverStart();
+		void ReceiveThread();
 
-		void onProcessorStart();
+		void ProcessThread();
 
 		void onConnect(Connector&, int);
 

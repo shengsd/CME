@@ -73,9 +73,9 @@ namespace MDP
 		//void setOnIncremental( bool value ) { m_bOnIncremental = value; }
 		//bool isOnIncremental() { return m_bOnIncremental; }
 
-		//Instrument Recovery服务状态设置
-		void setOnInstrumentDefinition( bool value ) { m_bOnInstrumentRecovery = value; }
-		bool isOnInstrumentRecovery() { return m_bOnInstrumentRecovery; }
+		//Instrument Definition服务状态设置
+		void setOnInstrumentDefinition( bool value ) { m_bOnInstrumentDefinition = value; }
+		bool isOnInstrumentDefinition() { return m_bOnInstrumentDefinition; }
 
 		//合约定义获取状态设置
 		//void setInstDefComplete( bool value ) { m_InstDefComplete = value; }
@@ -115,7 +115,7 @@ namespace MDP
 		bool m_bOnIncremental;
 
 		//Instrument Definition服务标志
-		bool m_bOnInstrumentRecovery;
+		bool m_bOnInstrumentDefinition;
 
 		//Market Recovery服务标志
 		bool m_bOnMarketRecovery;
