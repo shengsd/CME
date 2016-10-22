@@ -3,8 +3,6 @@
 #include "Connector.h"
 #include "Utility.h"
 #include "Packet.h"
-#include "Mutex.h"
-
 
 namespace MDP
 {
@@ -140,8 +138,6 @@ namespace MDP
 		fd_set m_fds;
 
 		unsigned m_sendLength;
-
-		Mutex m_mutex;
 	};
 }
 

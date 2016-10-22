@@ -18,7 +18,6 @@
 #include <set>
 #include <map>
 #include <string>
-#include <sstream>
 #include <stdio.h>
 #include <sys/types.h>
 #include <ctype.h>

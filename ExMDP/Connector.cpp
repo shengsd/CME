@@ -8,8 +8,7 @@ namespace MDP
 	Connector::Connector()
 	{
 		socket_init();
-		m_timeval.tv_sec = 2;
-		m_timeval.tv_usec = 0;
+		
 		//////////////////////////////////////////////////////////////////////////
 		
 		//std::pair<int, int> sockets = socket_createpair();
@@ -30,12 +29,12 @@ namespace MDP
 	Connector::~Connector()
 	{
 		Sockets::iterator i;
-		for ( i = m_readSockets.begin(); i != m_readSockets.end(); ++i ) {
-			socket_close( *i );
+		for ( i = m_readSockets.begin(); i != m_readSockets.end(); ++i ) 
+		{
+			shutdown( *i, 2 );
+			closesocket( *i );
 		}
-
-		//socket_close( m_signal );
-		socket_term();
+		WSACleanup();
 	}
 
 // 	void Connector::setLogFile()

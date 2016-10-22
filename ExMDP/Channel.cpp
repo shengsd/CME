@@ -1,9 +1,10 @@
 #include "stdafx.h"
 #include "Channel.h"
+#include <direct.h>
 
 namespace MDP
 {
-	Channel::Channel( const ChannelID& channelID, Initiator* pInitiator)
+	Channel::Channel( const std::string& channelID, Initiator* pInitiator)
 	:m_ChannelID( channelID ),
 	 m_initiator( pInitiator ),
 	 m_poolTimeLimit( 10 ),
@@ -12,21 +13,19 @@ namespace MDP
 	 m_SnapShotNextSeqNum( 1 ),
 	 m_LastMsgSeqNumProcessed( 1 ),
 	 m_bOnInstrumentDefinition( false ),
-	 //m_bOnIncremental( false ),
 	 m_bOnMarketRecovery( false ),
-	 //m_InstDefComplete( false ),
 	 m_InstDefProcessedNum( 0 ),
 	 m_SnapShotProcessedNum( 0 )
 	{
-		std::string str;
-		std::stringstream ss;
-		ss << (int)channelID;
-		ss >> str;
-		file_mkdir(str.c_str());
-		m_packetsFileName = str + "/packets.log";
-		m_fPackets.open( m_packetsFileName.c_str(), std::ios::app );
-		m_eventsFileName = str + "/events.log";
-		m_fEvents.open(m_eventsFileName.c_str(), std::ios::app );
+		char szModulePath[MAX_PATH] = {0};
+		GetModuleFileName(NULL, szModulePath, MAX_PATH);
+		char* pExeDir = strrchr(szModulePath, '\\');
+		*pExeDir = 0;
+		std::string s = szModulePath;
+		s.append("\\CME\\"+channelID);
+		_mkdir(s.c_str());
+		m_fPackets.open( s + "\\packets.log", std::ios::app );
+		m_fEvents.open(s +"\\events.log", std::ios::app );
 	}
 
 	Channel::~Channel(void)
@@ -498,7 +497,7 @@ namespace MDP
 
 	void Channel::subscribeIncremental()
 	{
-		if ( m_initiator->doConnectToRealTime( m_ChannelID ) )
+		if ( m_initiator->SubscribeIncremental( m_ChannelID ) )
 		{
 			m_fEvents << "subscribe Incremental" << std::endl;
 		}
@@ -506,7 +505,7 @@ namespace MDP
 
 	void Channel::subscribeMarketRecovery()
 	{
-		if (m_initiator->subscribeMarketRecovery( m_ChannelID ))
+		if (m_initiator->SubscribeMarketRecovery( m_ChannelID ))
 		{
 			setOnMarketRecovery(true);
 			m_fEvents << "subscribe Market Recovery" << std::endl;
@@ -515,7 +514,7 @@ namespace MDP
 
 	void Channel::subscribeInstrumentDefinition()
 	{
-		if ( m_initiator->subscribeInstrumentDefinition( m_ChannelID ) )
+		if ( m_initiator->SubscribeInstrumentDefinition( m_ChannelID ) )
 		{
 			setOnInstrumentDefinition( true );
 			m_fEvents << "subscribe Instrument Definition!" << std::endl;
@@ -524,7 +523,7 @@ namespace MDP
 
 	void Channel::unsubscribe(int socket)
 	{
-		m_initiator->unsubscribe(socket);
+		m_initiator->Unsubscribe(socket);
 		m_fEvents << "Channel ID:"<< m_ChannelID << ", unsubscribe feed, socket:" << socket << std::endl;
 	}
 

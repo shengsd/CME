@@ -9,7 +9,7 @@ Worker::Worker(void)
 	m_pTradeSession = NULL;
 	m_hEventReadyToTrade = CreateEvent(NULL, TRUE, FALSE, NULL);
 	InitializeCriticalSection(&m_OrderLock);
-	m_pfAuditTrail = fopen("Audit Trail.txt","w+");
+	m_pfAuditTrail = fopen("Audit_Trail.log","w+");
 	//m_MessageLinkID = 0;
 }
 
@@ -1027,10 +1027,12 @@ UINT Worker::startMktDt()
 	}
 
 	ConfigStruct configStruct;
-	GetCurrentDirectory(128, configStruct.configFile);
-	GetCurrentDirectory(128, configStruct.templateFile);
-	sprintf(configStruct.configFile, "%s\\config.xml", configStruct.configFile);//"..\\Release\\config.xml";////////////////argv[ 1 ];$(TargetDir)\\config.xml 
-	sprintf(configStruct.templateFile, "%s\\templates_FixBinary.sbeir", configStruct.templateFile);//"..\\Release\\templates_FixBinary.sbeir";////////////////argv[ 2 ];$(TargetDir)\\templates_FixBinary.sbeir
+	char szModulePath[MAX_PATH] = {0};
+	GetModuleFileName(NULL, szModulePath, MAX_PATH);
+	char* pExeDir = strrchr(szModulePath, '\\');
+	*pExeDir = 0;
+	sprintf(configStruct.configFile, "%s\\Config\\config.xml", szModulePath);//"..\\Release\\config.xml";////////////////argv[ 1 ];$(TargetDir)\\config.xml 
+	sprintf(configStruct.templateFile, "%s\\Config\\templates_FixBinary.sbeir", szModulePath);//"..\\Release\\templates_FixBinary.sbeir";////////////////argv[ 2 ];$(TargetDir)\\templates_FixBinary.sbeir
 	strcpy(configStruct.userName, "CME");
 	strcpy(configStruct.passWord, "CME");
 	strcpy(configStruct.localInterface, "172.17.120.92");//"10.25.1.148";

@@ -1,30 +1,23 @@
 #pragma once
 #include "Packet.h"
 #include "Initiator.h"
-#include <fstream>
-#include "Mutex.h"
-
 namespace MDP
 {
-	class Initiator;
 	typedef int ChannelID;
-//	class Packet;
-	
+	class Initiator;
 	class Channel
 	{
 	public:
-		Channel( const ChannelID&, Initiator* );
-		
+		Channel( const std::string&, Initiator* );
 		~Channel();
+
+		Initiator* m_initiator;
 
 		//从sock读取包，connectType为包类型
 		bool read( int sock, int connectType );
 
 		//有效行情包推送
 		void PushPacket( Packet& packet);
-		//void pushPacket( Packet& packet, bool copy );
-		//清空有效行情队列
-		//void clearPacketQueue();
 
 		//处理实时行情包
 		void processRealTimePacket( Packet& packet);
@@ -99,15 +92,13 @@ namespace MDP
 
 		void onData( const char* , int );
 
-		ChannelID getChannelID() { return m_ChannelID; }
-
 		//有效行情包队列
 		//std::queue<Packet> m_packetQueue;
 
 	private:
 		///Application& m_application;
 		
-		ChannelID m_ChannelID;
+		std::string m_ChannelID;
 
 //		typedef std::queue<Packet> PacketQueue;
 
@@ -151,19 +142,12 @@ namespace MDP
 		PacketSpool m_InstDefPacketSpool;
 		PacketSpool m_SnapShotPacketSpool;
 
-		Initiator* m_initiator;
-
 		//从socket读取的数据直接存到Packet中
 		char m_buffer[2048];
 		size_t m_len;
 
 		std::ofstream m_fPackets;
 		std::ofstream m_fEvents;
-
-		std::string m_packetsFileName;
-		std::string m_eventsFileName;
-
-		Mutex m_mutex;
 	};
 
 }
