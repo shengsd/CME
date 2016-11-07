@@ -15,12 +15,6 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="mfc.cpp">
-      <Filter>源文件</Filter>
-    </ClCompile>
-    <ClCompile Include="mfcDlg.cpp">
-      <Filter>源文件</Filter>
-    </ClCompile>
     <ClCompile Include="stdafx.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
@@ -30,14 +24,14 @@
     <ClCompile Include="AlterDlg.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
+    <ClCompile Include="cme.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="cmeDlg.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="mfc.h">
-      <Filter>头文件</Filter>
-    </ClInclude>
-    <ClInclude Include="mfcDlg.h">
-      <Filter>头文件</Filter>
-    </ClInclude>
     <ClInclude Include="Resource.h">
       <Filter>头文件</Filter>
     </ClInclude>
@@ -51,6 +45,12 @@
       <Filter>头文件</Filter>
     </ClInclude>
     <ClInclude Include="AlterDlg.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="cme.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="cmeDlg.h">
       <Filter>头文件</Filter>
     </ClInclude>
   </ItemGroup>

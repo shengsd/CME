@@ -14,6 +14,7 @@
     <ProjectGuid>{31364ACB-76C6-48F6-8503-33C7E92373C1}</ProjectGuid>
     <RootNamespace>mfc</RootNamespace>
     <Keyword>MFCProj</Keyword>
+    <ProjectName>CMEdemo</ProjectName>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
@@ -43,7 +44,6 @@
     <_ProjectFileVersion>11.0.61030.0</_ProjectFileVersion>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
-    <IntDir>$(Configuration)\</IntDir>
     <LinkIncremental>false</LinkIncremental>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -112,8 +112,8 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="AlterDlg.cpp" />
-    <ClCompile Include="mfc.cpp" />
-    <ClCompile Include="mfcDlg.cpp" />
+    <ClCompile Include="cme.cpp" />
+    <ClCompile Include="cmeDlg.cpp" />
     <ClCompile Include="stdafx.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Create</PrecompiledHeader>
@@ -122,8 +122,8 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="AlterDlg.h" />
-    <ClInclude Include="mfc.h" />
-    <ClInclude Include="mfcDlg.h" />
+    <ClInclude Include="cme.h" />
+    <ClInclude Include="cmeDlg.h" />
     <ClInclude Include="Resource.h" />
     <ClInclude Include="stdafx.h" />
     <ClInclude Include="targetver.h" />

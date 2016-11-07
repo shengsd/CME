@@ -4,15 +4,33 @@
 #include "ExMDP.h"
 #include "Initiator.h"
 
-MDP::Initiator p;
+MDP::Initiator* p = NULL;
 
 EXMDP_API int StartEngine( ConfigStruct* configStruct, Application* application )
 {
-	return p.Start(configStruct, application);
+	if (!p)
+	{
+		p = new MDP::Initiator;
+		return p->Start(configStruct, application);
+	}
+	else
+	{
+		return -1;
+	}
 }
 
 EXMDP_API int StopEngine()
 {
-	return p.Stop();
+	if (p)
+	{
+		p->Stop();
+		delete p;
+		p = NULL;
+		return 0;
+	}
+	else
+	{
+		return -1;
+	}
 }
 

@@ -2,8 +2,8 @@
 //
 
 #include "stdafx.h"
-#include "mfc.h"
-#include "mfcDlg.h"
+#include "cme.h"
+#include "cmeDlg.h"
 #include "AlterDlg.h"
 
 #ifdef _DEBUG
@@ -15,7 +15,7 @@
 UINT Trade( LPVOID pParam )
 {
 	static BOOL bTrade= FALSE;
-	CmfcDlg* pDlg = (CmfcDlg* )pParam;
+	CcmeDlg* pDlg = (CcmeDlg* )pParam;
 	pDlg->GetDlgItem(IDC_BUTTON3)->EnableWindow(FALSE);
 	if (bTrade)//stop
 	{
@@ -45,7 +45,7 @@ UINT Trade( LPVOID pParam )
 UINT Quote( LPVOID pParam )
 {
 	static BOOL bQuote= FALSE;
-	CmfcDlg* pDlg = (CmfcDlg* )pParam;
+	CcmeDlg* pDlg = (CcmeDlg* )pParam;
 	pDlg->GetDlgItem(IDC_BUTTON5)->EnableWindow(FALSE);
 	if (bQuote)//stop
 	{
@@ -112,14 +112,14 @@ END_MESSAGE_MAP()
 
 // CmfcDlg 对话框
 
-CmfcDlg::CmfcDlg(CWnd* pParent /*=NULL*/)
-	: CDialog(CmfcDlg::IDD, pParent)
+CcmeDlg::CcmeDlg(CWnd* pParent /*=NULL*/)
+	: CDialog(CcmeDlg::IDD, pParent)
 {
 	m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
 	m_OrderBookSecurityID = 0;
 }
 
-void CmfcDlg::DoDataExchange(CDataExchange* pDX)
+void CcmeDlg::DoDataExchange(CDataExchange* pDX)
 {
 	CDialog::DoDataExchange(pDX);
 	DDX_Control(pDX, IDC_LIST3, m_lvOrderInfoList);
@@ -140,17 +140,17 @@ void CmfcDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_EDIT5, m_MinQty);
 }
 
-BEGIN_MESSAGE_MAP(CmfcDlg, CDialog)
+BEGIN_MESSAGE_MAP(CcmeDlg, CDialog)
 	ON_WM_SYSCOMMAND()
 	ON_WM_PAINT()
 	ON_WM_QUERYDRAGICON()
 	//}}AFX_MSG_MAP
-	ON_BN_CLICKED(IDC_BUTTON_ENTER, &CmfcDlg::OnBnClickedEnter)
-	ON_NOTIFY(NM_DBLCLK, IDC_LIST2, &CmfcDlg::OnNMDblclkList2)
-	ON_BN_CLICKED(IDC_BUTTON3, &CmfcDlg::OnBnClickedTrade)
-	ON_BN_CLICKED(IDC_BUTTON5, &CmfcDlg::OnBnClickedQuote)
-	ON_NOTIFY(NM_DBLCLK, IDC_LIST3, &CmfcDlg::OnNMDblclkListOrderInfo)
-	ON_BN_CLICKED(IDC_BUTTON_CLEAR, &CmfcDlg::OnBnClickedRFQ)
+	ON_BN_CLICKED(IDC_BUTTON_ENTER, &CcmeDlg::OnBnClickedEnter)
+	ON_NOTIFY(NM_DBLCLK, IDC_LIST2, &CcmeDlg::OnNMDblclkList2)
+	ON_BN_CLICKED(IDC_BUTTON3, &CcmeDlg::OnBnClickedTrade)
+	ON_BN_CLICKED(IDC_BUTTON5, &CcmeDlg::OnBnClickedQuote)
+	ON_NOTIFY(NM_DBLCLK, IDC_LIST3, &CcmeDlg::OnNMDblclkListOrderInfo)
+	ON_BN_CLICKED(IDC_BUTTON_CLEAR, &CcmeDlg::OnBnClickedRFQ)
 END_MESSAGE_MAP()
 
 /*
@@ -168,7 +168,7 @@ DWORD WINAPI StopWorkProc(void *)
 
 // CmfcDlg 消息处理程序
 
-BOOL CmfcDlg::OnInitDialog()
+BOOL CcmeDlg::OnInitDialog()
 {
 	CDialog::OnInitDialog();
 
@@ -309,7 +309,7 @@ BOOL CmfcDlg::OnInitDialog()
 	return TRUE;  // 除非将焦点设置到控件，否则返回 TRUE
 }
 
-void CmfcDlg::OnSysCommand(UINT nID, LPARAM lParam)
+void CcmeDlg::OnSysCommand(UINT nID, LPARAM lParam)
 {
 	if ((nID & 0xFFF0) == IDM_ABOUTBOX)
 	{
@@ -326,7 +326,7 @@ void CmfcDlg::OnSysCommand(UINT nID, LPARAM lParam)
 //  来绘制该图标。对于使用文档/视图模型的 MFC 应用程序，
 //  这将由框架自动完成。
 
-void CmfcDlg::OnPaint()
+void CcmeDlg::OnPaint()
 {
 	if (IsIconic())
 	{
@@ -353,12 +353,12 @@ void CmfcDlg::OnPaint()
 
 //当用户拖动最小化窗口时系统调用此函数取得光标
 //显示。
-HCURSOR CmfcDlg::OnQueryDragIcon()
+HCURSOR CcmeDlg::OnQueryDragIcon()
 {
 	return static_cast<HCURSOR>(m_hIcon);
 }
 
-void CmfcDlg::OnBnClickedEnter()
+void CcmeDlg::OnBnClickedEnter()
 {
 	// TODO: 在此添加控件通知处理程序代码
 	ORDER order = {0};
@@ -525,7 +525,7 @@ void CmfcDlg::OnBnClickedEnter()
 }
 
 
-void CmfcDlg::OnNMDblclkList2(NMHDR *pNMHDR, LRESULT *pResult)
+void CcmeDlg::OnNMDblclkList2(NMHDR *pNMHDR, LRESULT *pResult)
 {
 	LPNMITEMACTIVATE pNMItemActivate = reinterpret_cast<LPNMITEMACTIVATE>(pNMHDR);
 	// TODO: 在此添加控件通知处理程序代码
@@ -540,13 +540,13 @@ void CmfcDlg::OnNMDblclkList2(NMHDR *pNMHDR, LRESULT *pResult)
  	}
 }
 
-void CmfcDlg::OnBnClickedTrade()
+void CcmeDlg::OnBnClickedTrade()
 {
 	// TODO: 在此添加控件通知处理程序代码
 	AfxBeginThread(Trade, this);
 }
 
-void CmfcDlg::OnBnClickedQuote()
+void CcmeDlg::OnBnClickedQuote()
 {
 	// TODO: 在此添加控件通知处理程序代码
 	//AfxBeginThread(Quote, this);
@@ -581,7 +581,7 @@ void CmfcDlg::OnBnClickedQuote()
 }
 
 
-void CmfcDlg::OnNMDblclkListOrderInfo(NMHDR *pNMHDR, LRESULT *pResult)
+void CcmeDlg::OnNMDblclkListOrderInfo(NMHDR *pNMHDR, LRESULT *pResult)
 {
 	LPNMITEMACTIVATE pNMItemActivate = reinterpret_cast<LPNMITEMACTIVATE>(pNMHDR);
 	// TODO: 在此添加控件通知处理程序代码
@@ -639,7 +639,7 @@ void CmfcDlg::OnNMDblclkListOrderInfo(NMHDR *pNMHDR, LRESULT *pResult)
 }
 
 //询价
-void CmfcDlg::OnBnClickedRFQ()
+void CcmeDlg::OnBnClickedRFQ()
 {
 	// TODO: 在此添加控件通知处理程序代码
 	ORDER order = {0};

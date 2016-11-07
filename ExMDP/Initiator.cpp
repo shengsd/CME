@@ -1,9 +1,5 @@
 #include "stdafx.h"
-#pragma comment(lib,"ws2_32.lib")
 #include "Initiator.h"
-#include <WinSock2.h>
-#include <process.h>
-#include <direct.h>
 #include "TinyXML/tinystr.h"
 #include "TinyXML/tinyxml.h"
 
@@ -15,7 +11,6 @@ namespace MDP
 		InitializeCriticalSection( &m_csData );
 		m_hEventData = CreateEvent( NULL, TRUE, FALSE, NULL );
 		m_hEventStop = CreateEvent( NULL, TRUE, FALSE, NULL );
-		m_bStopped = TRUE;
 		WORD version = MAKEWORD( 2, 2 );
 		WSADATA data;
 		WSAStartup( version, &data );
@@ -28,12 +23,6 @@ namespace MDP
 		DeleteCriticalSection( &m_csData );
 		CloseHandle(m_hEventStop);
 		CloseHandle(m_hEventData);
-		Sockets::iterator i;
-		for ( i = m_readSockets.begin(); i != m_readSockets.end(); ++i ) 
-		{
-			shutdown( *i, 2 );
-			closesocket( *i );
-		}
 		WSACleanup();
 	}
 
@@ -61,13 +50,6 @@ namespace MDP
 			return 1;
 		}
 
-		if (!m_bStopped)
-		{
-			strcpy(configStruct->errorInfo, "[Start]: failed! Already started!\n");
-			return 1;
-		}
-		ResetEvent(m_hEventStop);
-
 		m_configFile.assign(configStruct->configFile);
 		m_localInterface.assign(configStruct->localInterface);
 		m_templateFile.assign(configStruct->templateFile);
@@ -76,13 +58,16 @@ namespace MDP
 		m_application = application;
 
 		//打开（创建）日志文件
-		char szLog[MAX_PATH] = ".\\CME";
-		if (_access(szLog, 0) != 0)
-			_mkdir(szLog);
+		char szPath[MAX_PATH] = {0};
+		GetModuleFileName(NULL, szPath, MAX_PATH);
+		char* pExeDir = strrchr(szPath, '\\');
+		*pExeDir = '\0';
+		sprintf(szPath, "%s\\Log", szPath);
+		_mkdir(szPath);
 		SYSTEMTIME st;
 		GetSystemTime(&st);
-		sprintf(szLog, "%s\\MDP_%02d.log", szLog, st.wDay);
-		m_fLog.open(szLog, std::ofstream::app );
+		sprintf(szPath, "%s\\MDP_%02d.log", szPath, st.wDay);
+		m_fLog.open(szPath, std::ofstream::app );
 		if ( !m_fLog.is_open() )
 		{
 			strcpy(configStruct->errorInfo, "[Start]: Open log file failed!\n");
@@ -176,17 +161,11 @@ namespace MDP
 			strcpy(configStruct->errorInfo, "[Start]: Unable to spawn processor thread!\n");
 			return 1;
 		}
-
-		m_bStopped = FALSE;
 		return 0;
 	}
 
-
-	int Initiator::Stop()
+	void Initiator::Stop()
 	{
-		if (m_bStopped)
-			return 1;
-
 		SetEvent(m_hEventStop);
 
 		//等待接收线程退出
@@ -202,18 +181,16 @@ namespace MDP
 		}
 		m_mapSocket2Info.clear();
 
+		//delete Channels
 		MAPChannels::iterator j = m_mapChannels.begin();
 		for ( ; j != m_mapChannels.end(); ++j )
 		{
-			//清空各个Channel中的缓存
 			delete j->second;
 		}
 		m_mapChannels.clear();
 
 		WriteLog("Engine Stopped");
 		m_fLog.close();
-		m_bStopped = TRUE;
-		return 0;
 	}
 
 	void Initiator::ReceiveThread()
@@ -225,12 +202,11 @@ namespace MDP
 		SETChannelIDs::iterator i = m_setChannelIDs.begin();
 		for ( ; i != m_setChannelIDs.end(); i++ )
 		{
-			std::string s = *i;
-			WriteLog("Subscribe to channel, id=%s", s.c_str());
+			WriteLog("Subscribe to channel, id=%s", (*i).c_str());
 			MAPChannels::iterator j = m_mapChannels.find( *i );
 			if (j != m_mapChannels.end())
 			{
-				j->second->subscribeInstrumentDefinition();
+				j->second->subscribeInstrumentDef();
 			}
 		}
 
@@ -250,12 +226,14 @@ namespace MDP
 		FD_ZERO( &readSet );
 		BuildSet( m_readSockets, readSet );
 
-		int result = select( FD_SETSIZE, &readSet, NULL, NULL, &m_timeval);//&writeSet, &exceptSet, &m_timeval );
+		int result = select( FD_SETSIZE, &readSet, NULL, NULL, &m_timeval );//&writeSet, &exceptSet, &m_timeval );
 
 		if ( result == 0 )
 		{
 			//strategy.onTimeout( *this );
-			return;
+#ifdef _DEBUG
+			WriteLog("select() timeout!");
+#endif // _DEBUG
 		}
 		else if ( result > 0 )
 		{
@@ -263,7 +241,10 @@ namespace MDP
 		}
 		else
 		{
-			//onError();
+#ifdef _DEBUG
+			WriteLog( "select SOCKET_ERROR GetLastError():%d", GetLastError() );
+			Sleep(2000);
+#endif // _DEBUG
 		}
 	}
 
@@ -356,8 +337,7 @@ namespace MDP
 		Channel* pChannel = i->second;
 
 		///Instrument Replay UDP Feed A
-		std::string str;
-		str += "NA";
+		std::string str = c + "NA";
 		MAPConnectionIDtoInfo::iterator j = m_mapConnID2Info.find(str);
 		if (j == m_mapConnID2Info.end())
 			return false;
@@ -541,15 +521,14 @@ namespace MDP
 		u_long opt = 1;
 		::ioctlsocket( s, FIONBIO, &opt );
 		Sockets::iterator i = m_readSockets.find( s );
-		if( i != m_readSockets.end() ) return false;
-
+		if( i != m_readSockets.end() )
+			return false;
 		m_readSockets.insert( s );
 		return true;
 	}
 
 	void Initiator::UDPdisconnect(int socket, const std::string& address, const std::string& localInterface)
 	{
-		//g_lpfnWriteLog(LOG_DEBUG, "UDPdisconnect %s\n", address.c_str());
 		int iResult = 0;
 		struct ip_mreq imreq;
 		//imreq.imr_interface.s_addr = inet_addr(localInterface.c_str());
@@ -558,9 +537,8 @@ namespace MDP
 		iResult = setsockopt( socket, IPPROTO_IP, IP_DROP_MEMBERSHIP, (const char *)&imreq, sizeof(imreq));
 		if ( iResult == SOCKET_ERROR )
 		{
-			//g_lpfnWriteLog(LOG_DEBUG, "[UDPdisconnect]: setsockopt error, Error code:%d\n", WSAGetLastError() );
+			WriteLog( "[UDPdisconnect]: setsockopt error, Error code:%d\n", WSAGetLastError() );
 		}
-
 		drop(socket);
 	}
 

@@ -44,11 +44,11 @@
 #define OrderBook_Column_SellQuantity 5
 
 // CmfcDlg 对话框
-class CmfcDlg : public CDialog
+class CcmeDlg : public CDialog
 {
 // 构造
 public:
-	CmfcDlg(CWnd* pParent = NULL);	// 标准构造函数
+	CcmeDlg(CWnd* pParent = NULL);	// 标准构造函数
 
 // 对话框数据
 	enum { IDD = IDD_CME_DIALOG };

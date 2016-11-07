@@ -97,7 +97,7 @@ namespace MDP
 					delete *j;
 				}
 			}
-			m_groups.clear();		
+			m_groups.clear();
 		}
 
 	private:

@@ -2,8 +2,8 @@
 //
 
 #include "stdafx.h"
-#include "mfc.h"
-#include "mfcDlg.h"
+#include "cme.h"
+#include "cmeDlg.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -12,14 +12,14 @@
 
 // CmfcApp
 
-BEGIN_MESSAGE_MAP(CmfcApp, CWinApp)
+BEGIN_MESSAGE_MAP(CcmeApp, CWinApp)
 	ON_COMMAND(ID_HELP, &CWinApp::OnHelp)
 END_MESSAGE_MAP()
 
 
 // CmfcApp 构造
 
-CmfcApp::CmfcApp()
+CcmeApp::CcmeApp()
 {
 	// TODO: 在此处添加构造代码，
 	// 将所有重要的初始化放置在 InitInstance 中
@@ -27,12 +27,12 @@ CmfcApp::CmfcApp()
 
 
 // 唯一的一个 CmfcApp 对象
-CmfcApp theApp;
+CcmeApp theApp;
 Worker g_worker;
 
 // CmfcApp 初始化
 
-BOOL CmfcApp::InitInstance()
+BOOL CcmeApp::InitInstance()
 {
 	HANDLE hMutex = ::CreateMutex(NULL, FALSE, "mfc");
 	if (GetLastError() == ERROR_ALREADY_EXISTS)
@@ -60,7 +60,7 @@ BOOL CmfcApp::InitInstance()
 	// 例如修改为公司或组织名
 	//SetRegistryKey(_T(""));
 
-	CmfcDlg dlg;
+	CcmeDlg dlg;
 	m_pMainWnd = &dlg;
 	INT_PTR nResponse = dlg.DoModal();
 	if (nResponse == IDOK)

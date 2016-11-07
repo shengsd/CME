@@ -2,7 +2,7 @@
 //
 
 #include "stdafx.h"
-#include "mfc.h"
+#include "cme.h"
 #include "AlterDlg.h"
 #include "afxdialogex.h"
 

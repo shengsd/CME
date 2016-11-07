@@ -26,3 +26,7 @@
 #include <math.h>
 #include <algorithm>
 #include <fstream>
+#include <direct.h>
+#include <WinSock2.h>
+#include <process.h>
+

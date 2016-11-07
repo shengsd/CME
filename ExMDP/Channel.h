@@ -20,45 +20,45 @@ namespace MDP
 		void PushPacket( Packet& packet);
 
 		//处理实时行情包
-		void processRealTimePacket( Packet& packet);
+		void processIncrementalPacket( Packet& packet);
 		//处理合约定义行情包
-		void processInstDefPacket( Packet& packet, int sock);
+		void processInstrumentDefPacket( Packet& packet, int sock);
 		//处理快照行情包
-		void processSnapShotPacket( Packet& packet, int sock);
+		void processMarketRecoveryPacket( Packet& packet, int sock);
 
 		//缓存实时行情包（序号过大）
-		void spoolRealTimePacket( Packet& packet );
+		void spoolIncrementalPacket( Packet& packet );
 		//缓存合约定义行情包
-		void spoolInstDefPacket( Packet& packet );
+		void spoolInstrumentDefPacket( Packet& packet );
 		//缓存快照行情包
-		void spoolSnapShotPacket( Packet& packet );
+		void spoolMarketRecoveryPacket( Packet& packet );
 
 		//推送合约定义行情包之前，还需要找停止条件：消息数量达到Tag 911-TotNumReports
-		void onPushInstDefPacket( Packet& packet, int sock );
+		void onPushInstrumentDefPacket( Packet& packet, int sock );
 		//同样的，快照的停止条件：消息数量达到Tag 911-TotNumReports，还需要获取tag 369-LastMsgSeqNumProcessed，+1后作为实时行情推送的开始序号
-		void onPushSnapShotPacket( Packet& packet, int sock );
+		void onPushMarketRecoveryPacket( Packet& packet, int sock );
 
 		//检查实时行情中的缓存包是否可以推送
-		void checkRealTimeSpoolTimer();
+		void checkIncrementalSpoolTimer();
 		//检查合约定义中的缓存包
-		void checkInstDefSpoolTimer(int sock);
+		void checkInstrumentDefSpoolTimer(int sock);
 		//检查快照中的缓存包
-		void checkSnapShotSpoolTimer(int sock);
+		void checkMarketRecoverySpoolTimer(int sock);
 
 		//清空实时行情包缓存
-		void clearRealTimeSpool();
+		void clearIncrementalSpool();
 		//清空合约定义行情包缓存
-		void clearInstDefSpool();
+		void clearInstrumentDefSpool();
 		//清空快照行情包缓存
-		void clearSnapShotSpool();
+		void clearMarketRecoverySpool();
 
 		//订阅组播
 		//订阅Incremental Feed
 		void subscribeIncremental();
-		//订阅Recovery服务
+		//订阅Market Recovery Feed
 		void subscribeMarketRecovery();
 		//订阅Instrument Replay Feed
-		void subscribeInstrumentDefinition();
+		void subscribeInstrumentDef();
 		//退出组播
 		void unsubscribe(int socket);
 
@@ -67,8 +67,8 @@ namespace MDP
 		//bool isOnIncremental() { return m_bOnIncremental; }
 
 		//Instrument Definition服务状态设置
-		void setOnInstrumentDefinition( bool value ) { m_bOnInstrumentDefinition = value; }
-		bool isOnInstrumentDefinition() { return m_bOnInstrumentDefinition; }
+		void setOnInstrumentDef( bool value ) { m_bOnInstrumentDef = value; }
+		bool isOnInstrumentDef() { return m_bOnInstrumentDef; }
 
 		//合约定义获取状态设置
 		//void setInstDefComplete( bool value ) { m_InstDefComplete = value; }
@@ -80,13 +80,13 @@ namespace MDP
 
 
 		//包处理序号自增
-		void increaseRealTimeNextSeqNum() { ++m_RealTimeNextSeqNum; }
-		void increaseSnapShotNextSeqNum() { ++m_SnapShotNextSeqNum; }
-		void increaseInstDefNextSeqNum() { ++m_InstDefNextSeqNum; }
+		void increaseIncrementalNextSeqNum() { ++m_IncrementalNextSeqNum; }
+		void increaseMarketRecoveryNextSeqNum() { ++m_MarketRecoveryNextSeqNum; }
+		void increaseInstrumentDefNextSeqNum() { ++m_InstrumentDefNextSeqNum; }
 
 //		void resetIncremental();
 		void resetMarketRecovery();
-		void resetInstrumentDefinition();
+		void resetInstrumentDef();
 
 		void onEvent( const std::string& );
 
@@ -106,7 +106,7 @@ namespace MDP
 		bool m_bOnIncremental;
 
 		//Instrument Definition服务标志
-		bool m_bOnInstrumentDefinition;
+		bool m_bOnInstrumentDef;
 
 		//Market Recovery服务标志
 		bool m_bOnMarketRecovery;
@@ -118,33 +118,33 @@ namespace MDP
 		//bool m_InstDefComplete;
 
 		//合约定义通道序号
-		unsigned m_InstDefNextSeqNum;
+		unsigned m_InstrumentDefNextSeqNum;
 		//快照通道序号
-		unsigned m_SnapShotNextSeqNum;
+		unsigned m_MarketRecoveryNextSeqNum;
 		//实时行情通道序号
-		unsigned m_RealTimeNextSeqNum;
+		unsigned m_IncrementalNextSeqNum;
 
 		//最后一条快照消息中的The tag 369-LastMsgSeqNumProcessed
 		//指示实时行情通道序号
 		unsigned m_LastMsgSeqNumProcessed;
 
 		//合约定义通道处理消息数量
-		unsigned m_InstDefProcessedNum;
+		unsigned m_InstrumentDefProcessedNum;
 		//快照通道处理消息数量
-		unsigned m_SnapShotProcessedNum;
+		unsigned m_MarketRecoveryProcessedNum;
 
 		//refresh sever的使用条件，超过这个时长（）
 		const int m_poolTimeLimit;
 
 		//缓存行情包
 		typedef std::map< unsigned int, Packet > PacketSpool;
-		PacketSpool m_RealTimePacketSpool;
-		PacketSpool m_InstDefPacketSpool;
-		PacketSpool m_SnapShotPacketSpool;
+		PacketSpool m_IncrementalPacketSpool;
+		PacketSpool m_InstrumentDefPacketSpool;
+		PacketSpool m_MarketRecoveryPacketSpool;
 
 		//从socket读取的数据直接存到Packet中
-		char m_buffer[2048];
-		size_t m_len;
+		//char m_buffer[2048];
+		//size_t m_len;
 
 		std::ofstream m_fPackets;
 		std::ofstream m_fEvents;

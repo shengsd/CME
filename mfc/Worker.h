@@ -1,7 +1,7 @@
 #pragma once
 #include "ExMDP.h"
 //#include "include/hsfix2_interface.h"
-#include "mfcDlg.h"
+#include "cmeDlg.h"
 #include <set>
 #include <fstream>
 #include "include/HSFIXEngn.h"
@@ -156,13 +156,13 @@ public:
 	~Worker(void);
 
 	//回写方式，直接调用函数
-	void setDlg(CmfcDlg* pDlg) 
+	void setDlg(CcmeDlg* pDlg) 
 	{
 		m_pDlg = pDlg;
 	}
 
 	// 主对话框 直接操作图形界面
-	CmfcDlg* m_pDlg;
+	CcmeDlg* m_pDlg;
 	//HWND m_hWindDlg;
 
 	//打印日志到图形界面

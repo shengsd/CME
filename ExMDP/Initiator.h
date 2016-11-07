@@ -45,7 +45,7 @@ namespace MDP
 		int Start( ConfigStruct* configStruct, Application* application );
 
 		//引擎停止
-		int Stop();
+		void Stop();
 
 		//接入合约定义组播
 		bool SubscribeInstrumentDefinition( const std::string& );
@@ -103,9 +103,6 @@ namespace MDP
 
 		//根据ChannelID查找Channel：ChannelID -> Channel*
 		MAPChannels m_mapChannels;
-
-		//禁止重复启动
-		BOOL m_bStopped;
 
 		//引擎关闭事件
 		HANDLE m_hEventStop;

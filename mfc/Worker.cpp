@@ -1,6 +1,6 @@
 #include "StdAfx.h"
 #include "Worker.h"
-#include "mfc.h"
+#include "cme.h"
 #include <io.h>
 #include <direct.h>
 
@@ -10,7 +10,6 @@ Worker::Worker(void)
 	m_hEventReadyToTrade = CreateEvent(NULL, TRUE, FALSE, NULL);
 	InitializeCriticalSection(&m_OrderLock);
 	m_pfAuditTrail = fopen("Audit_Trail.log","w+");
-	//m_MessageLinkID = 0;
 }
 
 Worker::~Worker(void)
@@ -1030,7 +1029,7 @@ UINT Worker::startMktDt()
 	char szModulePath[MAX_PATH] = {0};
 	GetModuleFileName(NULL, szModulePath, MAX_PATH);
 	char* pExeDir = strrchr(szModulePath, '\\');
-	*pExeDir = 0;
+	*pExeDir = '\0';
 	sprintf(configStruct.configFile, "%s\\Config\\config.xml", szModulePath);//"..\\Release\\config.xml";////////////////argv[ 1 ];$(TargetDir)\\config.xml 
 	sprintf(configStruct.templateFile, "%s\\Config\\templates_FixBinary.sbeir", szModulePath);//"..\\Release\\templates_FixBinary.sbeir";////////////////argv[ 2 ];$(TargetDir)\\templates_FixBinary.sbeir
 	strcpy(configStruct.userName, "CME");

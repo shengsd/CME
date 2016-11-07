@@ -1,28 +1,28 @@
 #include "stdafx.h"
 #include "Channel.h"
-#include <direct.h>
+
 
 namespace MDP
 {
 	Channel::Channel( const std::string& channelID, Initiator* pInitiator)
 	:m_ChannelID( channelID ),
 	 m_initiator( pInitiator ),
-	 m_poolTimeLimit( 10 ),
-	 m_RealTimeNextSeqNum( 1 ),
-	 m_InstDefNextSeqNum( 1 ),
-	 m_SnapShotNextSeqNum( 1 ),
+	 m_poolTimeLimit( 5 ),
+	 m_IncrementalNextSeqNum( 1 ),
+	 m_InstrumentDefNextSeqNum( 1 ),
+	 m_MarketRecoveryNextSeqNum( 1 ),
 	 m_LastMsgSeqNumProcessed( 1 ),
-	 m_bOnInstrumentDefinition( false ),
+	 m_bOnInstrumentDef( false ),
 	 m_bOnMarketRecovery( false ),
-	 m_InstDefProcessedNum( 0 ),
-	 m_SnapShotProcessedNum( 0 )
+	 m_InstrumentDefProcessedNum( 0 ),
+	 m_MarketRecoveryProcessedNum( 0 )
 	{
 		char szModulePath[MAX_PATH] = {0};
 		GetModuleFileName(NULL, szModulePath, MAX_PATH);
 		char* pExeDir = strrchr(szModulePath, '\\');
-		*pExeDir = 0;
+		*pExeDir = '\0';
 		std::string s = szModulePath;
-		s.append("\\CME\\"+channelID);
+		s.append("\\Log\\"+channelID);
 		_mkdir(s.c_str());
 		m_fPackets.open( s + "\\packets.log", std::ios::app );
 		m_fEvents.open(s +"\\events.log", std::ios::app );
@@ -36,7 +36,7 @@ namespace MDP
 
 	void Channel::onEvent( const std::string& value )
 	{
-		m_fEvents << value << std::endl;
+		//m_fEvents << value << std::endl;
 	}
 
 	void Channel::onData( const char* value, int size)
@@ -63,43 +63,41 @@ namespace MDP
 		packet.setPacketSize(nLen);
 		//UtcTimeStamp now;
 		//setLastReceivedTime( now );
-
 		//Packet packet(m_buffer, m_len);
 
 		switch (connectType)
 		{
 		case 1://Incremental feed
-
-//#ifdef _DEBUG
- 			m_fEvents << "  Incremental feed, sequence:" << packet.getSeqNum() << std::endl;
-//  			m_fPackets << "Incremental feed, sequence:" << packet.getSeqNum() << std::endl;
-//  			m_fPackets.write(packet.getPacketPointer(), packet.getPacketSize());
-//  			m_fPackets << std::endl;
-//#endif
+#ifdef _DEBUG
+			m_fEvents << "  Incremental feed, sequence:" << packet.getSeqNum() << std::endl;
+			m_fPackets << "Incremental feed, sequence:" << packet.getSeqNum() << std::endl;
+			m_fPackets.write(packet.getPacketPointer(), packet.getPacketSize());
+			m_fPackets << std::endl;
+#endif
 			//for test
 			//pushPacket(packet, true);
-			processRealTimePacket(packet);
+			processIncrementalPacket(packet);
 			break;
 		case 2://Instrument Definition feed
 
-// #ifdef _DEBUG
+#ifdef _DEBUG
   			m_fEvents << "   Instrument Definition feed, sequence:" << packet.getSeqNum() << std::endl;
-//  			m_fPackets << "Instrument Definition feed, sequence:" << packet.getSeqNum() << std::endl;
-//  			m_fPackets.write(packet.getPacketPointer(), packet.getPacketSize());
-//  			m_fPackets << std::endl;
-// #endif
+  			m_fPackets << "Instrument Definition feed, sequence:" << packet.getSeqNum() << std::endl;
+  			m_fPackets.write(packet.getPacketPointer(), packet.getPacketSize());
+  			m_fPackets << std::endl;
+#endif
 			//pushPacket(packet, true);
-			processInstDefPacket(packet, sock);
+			processInstrumentDefPacket(packet, sock);
 			break;
-		case 3://Snapshot Recovery feed
+		case 3://Market Recovery feed
 
-// #ifdef _DEBUG
+#ifdef _DEBUG
   			m_fEvents << "   SnapShot feed, sequence:" << packet.getSeqNum() << std::endl;
-//  			m_fPackets << "SnapShot feed, sequence:" << packet.getSeqNum() << std::endl;
-//  			m_fPackets.write(packet.getPacketPointer(), packet.getPacketSize());
-//  			m_fPackets << std::endl;
-// #endif // _DEBUG
-			processSnapShotPacket(packet, sock);
+  			m_fPackets << "SnapShot feed, sequence:" << packet.getSeqNum() << std::endl;
+  			m_fPackets.write(packet.getPacketPointer(), packet.getPacketSize());
+  			m_fPackets << std::endl;
+#endif // _DEBUG
+			processMarketRecoveryPacket(packet, sock);
 			break;
 		default:
 			return false;
@@ -107,17 +105,17 @@ namespace MDP
 		return true;
 	}
 
-	void Channel::processRealTimePacket(Packet& packet)
+	void Channel::processIncrementalPacket(Packet& packet)
 	{
-		if (packet.getSeqNum() == m_RealTimeNextSeqNum)
+		if (packet.getSeqNum() == m_IncrementalNextSeqNum)
 		{
 			PushPacket(packet);
-			increaseRealTimeNextSeqNum();
+			increaseIncrementalNextSeqNum();
 			m_fEvents << "Action: Push this packet\n";
 		}
-		else if (packet.getSeqNum() > m_RealTimeNextSeqNum)
+		else if (packet.getSeqNum() > m_IncrementalNextSeqNum)
 		{
-			spoolRealTimePacket(packet);
+			spoolIncrementalPacket(packet);
 			m_fEvents << "Action: Spool this packet\n";
 		}
 		else
@@ -125,30 +123,30 @@ namespace MDP
 			//discard duplicate packet
 			m_fEvents << "Action: Discard this packet\n";
 		}
-		checkRealTimeSpoolTimer();
+		checkIncrementalSpoolTimer();
 	}
 
 	//文档中建议开始条件是包序号为1，结束条件是处理消息数达到Tag 911-TotNumReports
-	void Channel::processInstDefPacket(Packet& packet, int sock)
+	void Channel::processInstrumentDefPacket(Packet& packet, int sock)
 	{
 		//Recovery状态中才处理
-		if ( !isOnInstrumentDefinition() )
+		if ( !isOnInstrumentDef() )
 		{
 			m_fEvents << "the channel is not on Instrument Recovery, ignore this packet" << std::endl;
 			return;
 		}
 
-		if (packet.getSeqNum() == m_InstDefNextSeqNum)
+		if (packet.getSeqNum() == m_InstrumentDefNextSeqNum)
 		{
-			onPushInstDefPacket(packet, sock);
+			onPushInstrumentDefPacket(packet, sock);
 			//pushPacket(packet, true);
 			PushPacket(packet);
-			increaseInstDefNextSeqNum();
+			increaseInstrumentDefNextSeqNum();
 			m_fEvents << "Action: Push this packet\n";
 		}
-		else if (packet.getSeqNum() > m_InstDefNextSeqNum)
+		else if (packet.getSeqNum() > m_InstrumentDefNextSeqNum)
 		{
-			spoolInstDefPacket(packet);
+			spoolInstrumentDefPacket(packet);
 			m_fEvents << "Action: Spool this packet\n";
 		}
 		else
@@ -157,16 +155,16 @@ namespace MDP
 			m_fEvents << "Action: Discard this packet\n";
 		}
 
-		checkInstDefSpoolTimer(sock);
+		checkInstrumentDefSpoolTimer(sock);
 
-		if (!isOnInstrumentDefinition())
+		if (!isOnInstrumentDef())
 		{
-			resetInstrumentDefinition();
+			resetInstrumentDef();
 			m_fEvents << "Instrument Recovery completed, reset Instrument Recovery Feed..." << std::endl;
 		}
 	}
 
-	void Channel::processSnapShotPacket( Packet& packet, int sock )
+	void Channel::processMarketRecoveryPacket( Packet& packet, int sock )
 	{
 		//不在恢复状态中？
 		if (!isOnMarketRecovery())
@@ -175,25 +173,18 @@ namespace MDP
 			return;
 		}
 
-		//合约定义没收完？
-// 		if (!isInsDefComplete())
-// 		{
-// 			m_fEvents << "the Inst def is not completed, ignore this packet" << std::endl;
-// 			return;
-// 		}
-
 		//从1号包开始依次处理
-		if (packet.getSeqNum() == m_SnapShotNextSeqNum)
+		if (packet.getSeqNum() == m_MarketRecoveryNextSeqNum)
 		{
-			onPushSnapShotPacket( packet, sock );
+			onPushMarketRecoveryPacket( packet, sock );
 			//pushPacket( packet, true );
 			PushPacket(packet);
-			increaseSnapShotNextSeqNum();
+			increaseMarketRecoveryNextSeqNum();
 			m_fEvents << "Action: Push this packet\n";
 		}
-		else if ( packet.getSeqNum() > m_SnapShotNextSeqNum )
+		else if ( packet.getSeqNum() > m_MarketRecoveryNextSeqNum )
 		{
-			spoolSnapShotPacket(packet);
+			spoolMarketRecoveryPacket(packet);
 			m_fEvents << "Action: Spool this packet\n";
 		}
 		else
@@ -201,7 +192,7 @@ namespace MDP
 			//discard packet
 			m_fEvents << "Action: Discard this packet\n";
 		}
-		checkSnapShotSpoolTimer(sock);
+		checkMarketRecoverySpoolTimer(sock);
 		if (!isOnMarketRecovery())
 		{
 			resetMarketRecovery();
@@ -229,54 +220,54 @@ namespace MDP
 	*/
 
 	//Incremental Feed Arbitration
-	void Channel::spoolRealTimePacket( Packet& packet )
+	void Channel::spoolIncrementalPacket( Packet& packet )
 	{
-		PacketSpool::iterator i = m_RealTimePacketSpool.find(packet.getSeqNum());
-		if (i == m_RealTimePacketSpool.end())
+		PacketSpool::iterator i = m_IncrementalPacketSpool.find(packet.getSeqNum());
+		if (i == m_IncrementalPacketSpool.end())
 		{
 // 			char* p = new char[packet.getPacketSize()];
 // 			memcpy(p, packet.getPacketPointer(), packet.getPacketSize());
 // 			packet.setPacket(p);
-			m_RealTimePacketSpool[packet.getSeqNum()] = packet;
+			m_IncrementalPacketSpool[packet.getSeqNum()] = packet;
 		}
 	}
 
-	void Channel::spoolInstDefPacket( Packet& packet )
+	void Channel::spoolInstrumentDefPacket( Packet& packet )
 	{
-		PacketSpool::iterator i = m_InstDefPacketSpool.find(packet.getSeqNum());
-		if (i == m_InstDefPacketSpool.end())
+		PacketSpool::iterator i = m_InstrumentDefPacketSpool.find(packet.getSeqNum());
+		if (i == m_InstrumentDefPacketSpool.end())
 		{
 // 			char* p = new char[packet.getPacketSize()];
 // 			memcpy(p, packet.getPacketPointer(), packet.getPacketSize());
 // 			packet.setPacket(p);
-			m_InstDefPacketSpool[packet.getSeqNum()] = packet;
+			m_InstrumentDefPacketSpool[packet.getSeqNum()] = packet;
 		}
 	}
 
-	void Channel::spoolSnapShotPacket( Packet& packet )
+	void Channel::spoolMarketRecoveryPacket( Packet& packet )
 	{
-		PacketSpool::iterator i = m_SnapShotPacketSpool.find(packet.getSeqNum());
-		if (i == m_SnapShotPacketSpool.end())
+		PacketSpool::iterator i = m_MarketRecoveryPacketSpool.find(packet.getSeqNum());
+		if (i == m_MarketRecoveryPacketSpool.end())
 		{
 // 			char* p = new char[packet.getPacketSize()];
 // 			memcpy(p, packet.getPacketPointer(), packet.getPacketSize());
 // 			packet.setPacket(p);
-			m_SnapShotPacketSpool[packet.getSeqNum()] = packet;
+			m_MarketRecoveryPacketSpool[packet.getSeqNum()] = packet;
 		}
 	}
 
-	void Channel::checkRealTimeSpoolTimer()
+	void Channel::checkIncrementalSpoolTimer()
 	{
-		while (!m_RealTimePacketSpool.empty())
+		while (!m_IncrementalPacketSpool.empty())
 		{
-			PacketSpool::iterator i = m_RealTimePacketSpool.begin();
+			PacketSpool::iterator i = m_IncrementalPacketSpool.begin();
 			Packet& packet = i->second;
 			unsigned seqNum = packet.getSeqNum();
 			// If the current packet sequence number is larger than expected,
 			// there's a gap
-			if (seqNum > m_RealTimeNextSeqNum)
+			if (seqNum > m_IncrementalNextSeqNum)
 			{
-				m_fEvents << "[checkRealTimeSpoolTimer]: still have a gap, cur num:" << seqNum << ", need num:" << m_RealTimeNextSeqNum << std::endl;
+				m_fEvents << "[checkRealTimeSpoolTimer]: still have a gap, current num:" << seqNum << ", need num:" << m_IncrementalNextSeqNum << std::endl;
 				/*
 				//time limit hasn't been reached, so it's still not an unrecoverable gap. Return and wait..
 				//No retransmission request sent for this message before
@@ -291,9 +282,9 @@ namespace MDP
 				//The RetransRequest failed or took too long and the gap wasn't
 				//filled by the other feed - The packets have been permanently
 				//missed. Recover the lost data from Market Recovery Server.
-				if (seqNum - m_RealTimeNextSeqNum >= 5 || packet.getTimeLimit() > m_poolTimeLimit) 
+				if (seqNum - m_IncrementalNextSeqNum >= 5 || packet.getTimeLimit() >= m_poolTimeLimit) 
 				{
-					m_fEvents << "[checkRealTimeSpoolTimer]: cur seqNum = " << seqNum <<", RealNextSeqNum = " <<m_RealTimeNextSeqNum << std::endl;
+					m_fEvents << "[checkRealTimeSpoolTimer]: cur seqNum = " << seqNum <<", RealNextSeqNum = " <<m_IncrementalNextSeqNum << std::endl;
 					m_fEvents << "[checkRealTimeSpoolTimer]: " << packet.getTimeLimit() << " seconds has passed" << std::endl;
 					
 					if (!isOnMarketRecovery())
@@ -306,47 +297,46 @@ namespace MDP
 					}
 				}
 				return;
-				
 			}
-			else if (seqNum == m_RealTimeNextSeqNum)
+			else if (seqNum == m_IncrementalNextSeqNum)
 			{
 				// The packet contains the next expected sequence number, so process it
 				PushPacket(packet);
-				increaseRealTimeNextSeqNum();
-				m_RealTimePacketSpool.erase(i);
+				increaseIncrementalNextSeqNum();
+				m_IncrementalPacketSpool.erase(i);
 				m_fEvents << "[checkRealTimeSpoolTimer]: push spooled packet, num:" << seqNum << std::endl;
 			}
 			else
 			{
 				//已经处理过，从缓存中删除
 				m_fEvents << "[checkRealTimeSpoolTimer]: already processed packet, num:" << seqNum << std::endl;
-				m_RealTimePacketSpool.erase(i);
+				m_IncrementalPacketSpool.erase(i);
 			}
 		}
 	}
 
-	void Channel::checkInstDefSpoolTimer(int sock)
+	void Channel::checkInstrumentDefSpoolTimer(int sock)
 	{
-		while (!m_InstDefPacketSpool.empty())
+		while (!m_InstrumentDefPacketSpool.empty())
 		{
-			PacketSpool::iterator i = m_InstDefPacketSpool.begin();
+			PacketSpool::iterator i = m_InstrumentDefPacketSpool.begin();
 			Packet& packet = i->second;
 			unsigned seqNum = packet.getSeqNum();
-			if (seqNum > m_InstDefNextSeqNum)
+			if (seqNum > m_InstrumentDefNextSeqNum)
 			{
 				//缓存数据还不能处理
-				m_fEvents << "[checkInstDefSpoolTimer]: still have a gap, cur num:" << seqNum << ", need num:" << m_InstDefNextSeqNum << std::endl;
+				m_fEvents << "[checkInstDefSpoolTimer]: still have a gap, cur num:" << seqNum << ", need num:" << m_InstrumentDefNextSeqNum << std::endl;
 				return;
 			}
-			else if (seqNum == m_InstDefNextSeqNum)
+			else if (seqNum == m_InstrumentDefNextSeqNum)
 			{
 				// The packet contains the next expected sequence number, so
 				//process it
-				increaseInstDefNextSeqNum();
-				onPushInstDefPacket(packet, sock);
+				increaseInstrumentDefNextSeqNum();
+				onPushInstrumentDefPacket(packet, sock);
 				//pushPacket(packet, false);
 				PushPacket(packet);
-				m_InstDefPacketSpool.erase(i);
+				m_InstrumentDefPacketSpool.erase(i);
 				m_fEvents << "[checkInstDefSpoolTimer]: push spooled packet, num:" << seqNum << std::endl;
 			}
 			else
@@ -354,44 +344,44 @@ namespace MDP
 				//已经处理过，从缓存中删除
 				//delete[] packet.getPacketPointer();
 				m_fEvents << "[checkInstDefSpoolTimer]: already processed packet, num:" << seqNum << std::endl;
-				m_InstDefPacketSpool.erase(i);
+				m_InstrumentDefPacketSpool.erase(i);
 			}
 		}
 	}
 
-	void Channel::checkSnapShotSpoolTimer(int sock)
+	void Channel::checkMarketRecoverySpoolTimer(int sock)
 	{
-		while (!m_SnapShotPacketSpool.empty())
+		while (!m_MarketRecoveryPacketSpool.empty())
 		{
-			PacketSpool::iterator i = m_SnapShotPacketSpool.begin();
+			PacketSpool::iterator i = m_MarketRecoveryPacketSpool.begin();
 			Packet& packet = i->second;
 			unsigned seqNum = packet.getSeqNum();
-			if (seqNum > m_SnapShotNextSeqNum)
+			if (seqNum > m_MarketRecoveryNextSeqNum)
 			{
-				m_fEvents << "[checkSnapShotSpoolTimer]: still have a gap, cur num:" << seqNum << ", need num:" << m_SnapShotNextSeqNum << std::endl;
+				m_fEvents << "[checkSnapShotSpoolTimer]: still have a gap, cur num:" << seqNum << ", need num:" << m_MarketRecoveryNextSeqNum << std::endl;
 				return;
 			}
-			else if (seqNum == m_SnapShotNextSeqNum)
+			else if (seqNum == m_MarketRecoveryNextSeqNum)
 			{
-				onPushSnapShotPacket(packet, sock);
+				onPushMarketRecoveryPacket(packet, sock);
 				//pushPacket(packet, false);
 				PushPacket(packet);
-				increaseSnapShotNextSeqNum();
-				m_SnapShotPacketSpool.erase(i);
+				increaseMarketRecoveryNextSeqNum();
+				m_MarketRecoveryPacketSpool.erase(i);
 				m_fEvents << "[checkSnapShotSpoolTimer]: push spooled packet, num:" << seqNum << std::endl;
 			}
 			else
 			{
 				//已经处理过，从缓存中删除
 				//delete[] packet.getPacketPointer();
-				m_SnapShotPacketSpool.erase(i);
+				m_MarketRecoveryPacketSpool.erase(i);
 				m_fEvents << "[checkSnapShotSpoolTimer]: already processed packet, num:" << seqNum << std::endl;
 			}
 		}
 	}
 
 
-	void Channel::onPushInstDefPacket( Packet& packet, int sock )
+	void Channel::onPushInstrumentDefPacket( Packet& packet, int sock )
 	{
 		//Packet Header
 		//	--Packet Sequence Num 4Bytes
@@ -414,7 +404,7 @@ namespace MDP
 
 			if (carCbs.getStatus())
 			{
-				++m_InstDefProcessedNum;
+				++m_InstrumentDefProcessedNum;
 				//解析成功
 				FieldMap& fieldMap = carCbs.getFieldMapRef();
 				Field* pField = NULL;
@@ -422,12 +412,12 @@ namespace MDP
 				//911-TotNumReports
 				if ( pField = fieldMap.getField(911) )
 				{
-					if (m_InstDefProcessedNum == pField->getUInt() )
+					if (m_InstrumentDefProcessedNum == pField->getUInt() )
 					{
-						m_fEvents << "[processInstDefPacket]InstDefCompleted, received " << m_InstDefProcessedNum << " messages." << std::endl;
+						m_fEvents << "[processInstDefPacket]InstDefCompleted, received " << m_InstrumentDefProcessedNum << " messages." << std::endl;
 						//setInstDefComplete(true);
 						unsubscribe(sock);
-						setOnInstrumentDefinition(false);
+						setOnInstrumentDef(false);
 						//收完合约后，订阅实时行情和快照
 						subscribeIncremental();
 						subscribeMarketRecovery();
@@ -441,7 +431,7 @@ namespace MDP
 	}
 
 	//SnapShot停止后需要获取实时行情下一个要处理的包序号
-	void Channel::onPushSnapShotPacket( Packet& packet, int sock )
+	void Channel::onPushMarketRecoveryPacket( Packet& packet, int sock )
 	{
 		//Packet Header
 		//	--Packet Sequence Num 4Bytes
@@ -465,10 +455,11 @@ namespace MDP
 			if (carCbs.getStatus())
 			{
 				//解析成功
-				++m_SnapShotProcessedNum;
+				++m_MarketRecoveryProcessedNum;
 				FieldMap& fieldMap = carCbs.getFieldMapRef();
 				Field* pField = NULL;
 
+				//LastMsgSeqNumProcessed
 				if ( pField = fieldMap.getField(369) )
 				{
 					m_LastMsgSeqNumProcessed = pField->getUInt();
@@ -477,16 +468,12 @@ namespace MDP
 				//TotNumReport
 				if ( pField = fieldMap.getField(911) )
 				{
-					if (m_SnapShotProcessedNum == pField->getUInt())
+					if (m_MarketRecoveryProcessedNum == pField->getUInt())
 					{
-						m_RealTimeNextSeqNum = m_LastMsgSeqNumProcessed + 1;
-//#ifdef _DEBUG
-						m_fEvents << "[processSnapShotPacket]SnapShot Completed, received " << m_SnapShotProcessedNum << " messages, m_RealTimeNextSeqNum : " << m_RealTimeNextSeqNum << std::endl;
-//#endif
+						m_IncrementalNextSeqNum = m_LastMsgSeqNumProcessed + 1;
+						m_fEvents << "[processSnapShotPacket]SnapShot Completed, received " << m_MarketRecoveryProcessedNum << " messages, m_RealTimeNextSeqNum : " << m_IncrementalNextSeqNum << std::endl;
 						unsubscribe(sock);
 						setOnMarketRecovery(false);
-						//setInstDefComplete(false);
-						//subscribeIncremental();
 					}
 				}
 			}
@@ -512,11 +499,11 @@ namespace MDP
 		}
 	}
 
-	void Channel::subscribeInstrumentDefinition()
+	void Channel::subscribeInstrumentDef()
 	{
 		if ( m_initiator->SubscribeInstrumentDefinition( m_ChannelID ) )
 		{
-			setOnInstrumentDefinition( true );
+			setOnInstrumentDef( true );
 			m_fEvents << "subscribe Instrument Definition!" << std::endl;
 		}
 	}
@@ -546,25 +533,25 @@ namespace MDP
 		}
 	}
 */
-	void Channel::resetInstrumentDefinition()
+	void Channel::resetInstrumentDef()
 	{
-		m_InstDefNextSeqNum = 1;
-		m_InstDefProcessedNum = 0;
-		clearInstDefSpool();
+		m_InstrumentDefNextSeqNum = 1;
+		m_InstrumentDefProcessedNum = 0;
+		clearInstrumentDefSpool();
 	}
 
 	void Channel::resetMarketRecovery()
 	{
-		m_SnapShotNextSeqNum = 1;
-		m_SnapShotProcessedNum = 0;
-		clearSnapShotSpool();
+		m_MarketRecoveryNextSeqNum = 1;
+		m_MarketRecoveryProcessedNum = 0;
+		clearMarketRecoverySpool();
 	}
 
 
-	void Channel::clearRealTimeSpool()
+	void Channel::clearIncrementalSpool()
 	{
-		PacketSpool::iterator i = m_RealTimePacketSpool.begin();
-		for ( ; i != m_RealTimePacketSpool.end(); i++ )
+		PacketSpool::iterator i = m_IncrementalPacketSpool.begin();
+		for ( ; i != m_IncrementalPacketSpool.end(); i++ )
 		{
 // 			Packet& packet = i->second;
 // 			char* p = packet.getPacketPointer();
@@ -574,14 +561,14 @@ namespace MDP
 // 				delete[] p;
 // 				p = NULL;
 // 			}
-			m_RealTimePacketSpool.erase(i);
+			m_IncrementalPacketSpool.erase(i);
 		}
 	}
 	
-	void Channel::clearInstDefSpool()
+	void Channel::clearInstrumentDefSpool()
 	{
-		PacketSpool::iterator i = m_InstDefPacketSpool.begin();
-		for ( ; i != m_InstDefPacketSpool.end(); i++ )
+		PacketSpool::iterator i = m_InstrumentDefPacketSpool.begin();
+		for ( ; i != m_InstrumentDefPacketSpool.end(); i++ )
 		{
 // 			Packet& packet = i->second;
 // 			char* p = packet.getPacketPointer();
@@ -590,14 +577,14 @@ namespace MDP
 // 				delete[] p;
 // 				p = NULL;
 // 			}
-			m_InstDefPacketSpool.erase(i);
+			m_InstrumentDefPacketSpool.erase(i);
 		}
 	}
 
-	void Channel::clearSnapShotSpool()
+	void Channel::clearMarketRecoverySpool()
 	{
-		PacketSpool::iterator i = m_SnapShotPacketSpool.begin();
-		for ( ; i != m_SnapShotPacketSpool.end(); i++ )
+		PacketSpool::iterator i = m_MarketRecoveryPacketSpool.begin();
+		for ( ; i != m_MarketRecoveryPacketSpool.end(); i++ )
 		{
 // 			Packet& packet = i->second;
 // 			char* p = packet.getPacketPointer();
@@ -606,7 +593,7 @@ namespace MDP
 // 				delete[] p;
 // 				p = NULL;
 // 			}
-			m_SnapShotPacketSpool.erase(i);
+			m_MarketRecoveryPacketSpool.erase(i);
 		}
 	}
 
