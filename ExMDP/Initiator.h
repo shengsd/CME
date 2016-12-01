@@ -139,7 +139,6 @@ namespace MDP
 
 		bool onData( int );
 
-		void onError( int );
 		void onError();
 
 		void onTimeout();
