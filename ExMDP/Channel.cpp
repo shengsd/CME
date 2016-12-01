@@ -61,9 +61,6 @@ namespace MDP
 			return false;
 
 		packet.setPacketSize(nLen);
-		//UtcTimeStamp now;
-		//setLastReceivedTime( now );
-		//Packet packet(m_buffer, m_len);
 
 		switch (connectType)
 		{
@@ -135,27 +132,20 @@ namespace MDP
 			m_fEvents << "the channel is not on Instrument Recovery, ignore this packet" << std::endl;
 			return;
 		}
-
+		//需要连续处理
 		if (packet.getSeqNum() == m_InstrumentDefNextSeqNum)
 		{
 			onPushInstrumentDefPacket(packet, sock);
-			//pushPacket(packet, true);
 			PushPacket(packet);
 			increaseInstrumentDefNextSeqNum();
 			m_fEvents << "Action: Push this packet\n";
 		}
-		else if (packet.getSeqNum() > m_InstrumentDefNextSeqNum)
-		{
-			spoolInstrumentDefPacket(packet);
-			m_fEvents << "Action: Spool this packet\n";
-		}
 		else
 		{
-			//discard packet
+			//discard packet and reset
+			resetInstrumentDef();
 			m_fEvents << "Action: Discard this packet\n";
 		}
-
-		checkInstrumentDefSpoolTimer(sock);
 
 		if (!isOnInstrumentDef())
 		{
@@ -177,22 +167,17 @@ namespace MDP
 		if (packet.getSeqNum() == m_MarketRecoveryNextSeqNum)
 		{
 			onPushMarketRecoveryPacket( packet, sock );
-			//pushPacket( packet, true );
 			PushPacket(packet);
 			increaseMarketRecoveryNextSeqNum();
 			m_fEvents << "Action: Push this packet\n";
 		}
-		else if ( packet.getSeqNum() > m_MarketRecoveryNextSeqNum )
-		{
-			spoolMarketRecoveryPacket(packet);
-			m_fEvents << "Action: Spool this packet\n";
-		}
 		else
 		{
-			//discard packet
+			//discard packet and reset
+			resetMarketRecovery();
 			m_fEvents << "Action: Discard this packet\n";
 		}
-		checkMarketRecoverySpoolTimer(sock);
+
 		if (!isOnMarketRecovery())
 		{
 			resetMarketRecovery();
@@ -205,54 +190,13 @@ namespace MDP
 		m_initiator->PushPacket(packet);
 	}
 
-	/*
-	void Channel::pushPacket(Packet& packet, bool copy)
-	{
-		if (copy)
-		{
-			char* p = new char[packet.getPacketSize()];
-			memcpy(p, packet.getPacketPointer(), packet.getPacketSize());
-			packet.setPacket(p);
-		}
-		m_packetQueue.push(packet);
-
-	}
-	*/
-
 	//Incremental Feed Arbitration
 	void Channel::spoolIncrementalPacket( Packet& packet )
 	{
 		PacketSpool::iterator i = m_IncrementalPacketSpool.find(packet.getSeqNum());
 		if (i == m_IncrementalPacketSpool.end())
 		{
-// 			char* p = new char[packet.getPacketSize()];
-// 			memcpy(p, packet.getPacketPointer(), packet.getPacketSize());
-// 			packet.setPacket(p);
 			m_IncrementalPacketSpool[packet.getSeqNum()] = packet;
-		}
-	}
-
-	void Channel::spoolInstrumentDefPacket( Packet& packet )
-	{
-		PacketSpool::iterator i = m_InstrumentDefPacketSpool.find(packet.getSeqNum());
-		if (i == m_InstrumentDefPacketSpool.end())
-		{
-// 			char* p = new char[packet.getPacketSize()];
-// 			memcpy(p, packet.getPacketPointer(), packet.getPacketSize());
-// 			packet.setPacket(p);
-			m_InstrumentDefPacketSpool[packet.getSeqNum()] = packet;
-		}
-	}
-
-	void Channel::spoolMarketRecoveryPacket( Packet& packet )
-	{
-		PacketSpool::iterator i = m_MarketRecoveryPacketSpool.find(packet.getSeqNum());
-		if (i == m_MarketRecoveryPacketSpool.end())
-		{
-// 			char* p = new char[packet.getPacketSize()];
-// 			memcpy(p, packet.getPacketPointer(), packet.getPacketSize());
-// 			packet.setPacket(p);
-			m_MarketRecoveryPacketSpool[packet.getSeqNum()] = packet;
 		}
 	}
 
@@ -284,12 +228,12 @@ namespace MDP
 				//missed. Recover the lost data from Market Recovery Server.
 				if (seqNum - m_IncrementalNextSeqNum >= 5 || packet.getTimeLimit() >= m_poolTimeLimit) 
 				{
-					m_fEvents << "[checkRealTimeSpoolTimer]: cur seqNum = " << seqNum <<", RealNextSeqNum = " <<m_IncrementalNextSeqNum << std::endl;
-					m_fEvents << "[checkRealTimeSpoolTimer]: " << packet.getTimeLimit() << " seconds has passed" << std::endl;
-					
-					if (!isOnMarketRecovery())
+					m_fEvents << "[checkRealTimeSpoolTimer]: " << packet.getTimeLimit() << " seconds passed" << std::endl;
+
+					//既不在收合约也不在恢复快照
+					if (!isOnInstrumentDef() && !isOnMarketRecovery())
 					{
-						subscribeMarketRecovery();
+						subscribeInstrumentDef();
 					}
 					else
 					{
@@ -313,73 +257,13 @@ namespace MDP
 				m_IncrementalPacketSpool.erase(i);
 			}
 		}
-	}
 
-	void Channel::checkInstrumentDefSpoolTimer(int sock)
-	{
-		while (!m_InstrumentDefPacketSpool.empty())
+		//检查缓存数量，如果快照无法恢复，应该清空数据
+		if (m_IncrementalPacketSpool.size() > 100)
 		{
-			PacketSpool::iterator i = m_InstrumentDefPacketSpool.begin();
-			Packet& packet = i->second;
-			unsigned seqNum = packet.getSeqNum();
-			if (seqNum > m_InstrumentDefNextSeqNum)
-			{
-				//缓存数据还不能处理
-				m_fEvents << "[checkInstDefSpoolTimer]: still have a gap, cur num:" << seqNum << ", need num:" << m_InstrumentDefNextSeqNum << std::endl;
-				return;
-			}
-			else if (seqNum == m_InstrumentDefNextSeqNum)
-			{
-				// The packet contains the next expected sequence number, so
-				//process it
-				increaseInstrumentDefNextSeqNum();
-				onPushInstrumentDefPacket(packet, sock);
-				//pushPacket(packet, false);
-				PushPacket(packet);
-				m_InstrumentDefPacketSpool.erase(i);
-				m_fEvents << "[checkInstDefSpoolTimer]: push spooled packet, num:" << seqNum << std::endl;
-			}
-			else
-			{
-				//已经处理过，从缓存中删除
-				//delete[] packet.getPacketPointer();
-				m_fEvents << "[checkInstDefSpoolTimer]: already processed packet, num:" << seqNum << std::endl;
-				m_InstrumentDefPacketSpool.erase(i);
-			}
+			m_IncrementalPacketSpool.clear();
 		}
 	}
-
-	void Channel::checkMarketRecoverySpoolTimer(int sock)
-	{
-		while (!m_MarketRecoveryPacketSpool.empty())
-		{
-			PacketSpool::iterator i = m_MarketRecoveryPacketSpool.begin();
-			Packet& packet = i->second;
-			unsigned seqNum = packet.getSeqNum();
-			if (seqNum > m_MarketRecoveryNextSeqNum)
-			{
-				m_fEvents << "[checkSnapShotSpoolTimer]: still have a gap, cur num:" << seqNum << ", need num:" << m_MarketRecoveryNextSeqNum << std::endl;
-				return;
-			}
-			else if (seqNum == m_MarketRecoveryNextSeqNum)
-			{
-				onPushMarketRecoveryPacket(packet, sock);
-				//pushPacket(packet, false);
-				PushPacket(packet);
-				increaseMarketRecoveryNextSeqNum();
-				m_MarketRecoveryPacketSpool.erase(i);
-				m_fEvents << "[checkSnapShotSpoolTimer]: push spooled packet, num:" << seqNum << std::endl;
-			}
-			else
-			{
-				//已经处理过，从缓存中删除
-				//delete[] packet.getPacketPointer();
-				m_MarketRecoveryPacketSpool.erase(i);
-				m_fEvents << "[checkSnapShotSpoolTimer]: already processed packet, num:" << seqNum << std::endl;
-			}
-		}
-	}
-
 
 	void Channel::onPushInstrumentDefPacket( Packet& packet, int sock )
 	{
@@ -397,7 +281,7 @@ namespace MDP
 			uMsgSize = *(UINT16* )pBuf;
 			pBuf += 2;
 			len -= 2;
-			CarCallbacks carCbs(listener, NULL);
+			CarCallbacks carCbs(listener);
 			listener.dispatchMessageByHeader(m_initiator->m_irRepo.header(), &m_initiator->m_irRepo)
 				.resetForDecode(pBuf , len)
 				.subscribe(&carCbs, &carCbs, &carCbs);
@@ -414,12 +298,10 @@ namespace MDP
 				{
 					if (m_InstrumentDefProcessedNum == pField->getUInt() )
 					{
-						m_fEvents << "[processInstDefPacket]InstDefCompleted, received " << m_InstrumentDefProcessedNum << " messages." << std::endl;
-						//setInstDefComplete(true);
+						m_fEvents << "[onPushInstrumentDefPacket]: Completed, received " << m_InstrumentDefProcessedNum << " messages." << std::endl;
 						unsubscribe(sock);
 						setOnInstrumentDef(false);
-						//收完合约后，订阅实时行情和快照
-						subscribeIncremental();
+						//收完合约后，订阅快照
 						subscribeMarketRecovery();
 					}
 				}
@@ -427,7 +309,6 @@ namespace MDP
 			pBuf += uMsgSize-2;
 			len -= uMsgSize-2;
 		}
-
 	}
 
 	//SnapShot停止后需要获取实时行情下一个要处理的包序号
@@ -447,7 +328,7 @@ namespace MDP
 			uMsgSize = *(UINT16* )pBuf;
 			pBuf += 2;
 			len -= 2;
-			CarCallbacks carCbs(listener, NULL);
+			CarCallbacks carCbs(listener);
 			listener.dispatchMessageByHeader(m_initiator->m_irRepo.header(), &m_initiator->m_irRepo)
 				.resetForDecode(pBuf , len)
 				.subscribe(&carCbs, &carCbs, &carCbs);
@@ -459,10 +340,13 @@ namespace MDP
 				FieldMap& fieldMap = carCbs.getFieldMapRef();
 				Field* pField = NULL;
 
-				//LastMsgSeqNumProcessed
+				//取一次循环的第一个包中的LastMsgSeqNumProcessed，用于同步Incremental Feed
 				if ( pField = fieldMap.getField(369) )
 				{
-					m_LastMsgSeqNumProcessed = pField->getUInt();
+					if (packet.getSeqNum() == 1)
+					{
+						m_LastMsgSeqNumProcessed = pField->getUInt();
+					}
 				}
 
 				//TotNumReport
@@ -514,37 +398,16 @@ namespace MDP
 		m_fEvents << "Channel ID:"<< m_ChannelID << ", unsubscribe feed, socket:" << socket << std::endl;
 	}
 
-/*
-	void Channel::clearPacketQueue()
-	{
-		int num = m_packetQueue.size();
-		while (num)
-		{
-			Packet& packet = m_packetQueue.front();
-			char* pBuf = packet.getPacketPointer();
-			if (pBuf != NULL)
-			{
-				//std::cout << "test2" << std::endl;
-				delete[] pBuf;
-				pBuf = NULL;
-			}
-			m_packetQueue.pop();
-			--num;
-		}
-	}
-*/
 	void Channel::resetInstrumentDef()
 	{
 		m_InstrumentDefNextSeqNum = 1;
 		m_InstrumentDefProcessedNum = 0;
-		clearInstrumentDefSpool();
 	}
 
 	void Channel::resetMarketRecovery()
 	{
 		m_MarketRecoveryNextSeqNum = 1;
 		m_MarketRecoveryProcessedNum = 0;
-		clearMarketRecoverySpool();
 	}
 
 
@@ -553,52 +416,9 @@ namespace MDP
 		PacketSpool::iterator i = m_IncrementalPacketSpool.begin();
 		for ( ; i != m_IncrementalPacketSpool.end(); i++ )
 		{
-// 			Packet& packet = i->second;
-// 			char* p = packet.getPacketPointer();
-// 			if (p != NULL)
-// 			{
-// 				//std::cout << "test3" << std::endl;
-// 				delete[] p;
-// 				p = NULL;
-// 			}
 			m_IncrementalPacketSpool.erase(i);
 		}
 	}
 	
-	void Channel::clearInstrumentDefSpool()
-	{
-		PacketSpool::iterator i = m_InstrumentDefPacketSpool.begin();
-		for ( ; i != m_InstrumentDefPacketSpool.end(); i++ )
-		{
-// 			Packet& packet = i->second;
-// 			char* p = packet.getPacketPointer();
-// 			if (p != NULL)
-// 			{
-// 				delete[] p;
-// 				p = NULL;
-// 			}
-			m_InstrumentDefPacketSpool.erase(i);
-		}
-	}
-
-	void Channel::clearMarketRecoverySpool()
-	{
-		PacketSpool::iterator i = m_MarketRecoveryPacketSpool.begin();
-		for ( ; i != m_MarketRecoveryPacketSpool.end(); i++ )
-		{
-// 			Packet& packet = i->second;
-// 			char* p = packet.getPacketPointer();
-// 			if (p != NULL)
-// 			{
-// 				delete[] p;
-// 				p = NULL;
-// 			}
-			m_MarketRecoveryPacketSpool.erase(i);
-		}
-	}
-
-
-
-
 }
 

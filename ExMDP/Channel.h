@@ -28,10 +28,6 @@ namespace MDP
 
 		//缓存实时行情包（序号过大）
 		void spoolIncrementalPacket( Packet& packet );
-		//缓存合约定义行情包
-		void spoolInstrumentDefPacket( Packet& packet );
-		//缓存快照行情包
-		void spoolMarketRecoveryPacket( Packet& packet );
 
 		//推送合约定义行情包之前，还需要找停止条件：消息数量达到Tag 911-TotNumReports
 		void onPushInstrumentDefPacket( Packet& packet, int sock );
@@ -40,17 +36,9 @@ namespace MDP
 
 		//检查实时行情中的缓存包是否可以推送
 		void checkIncrementalSpoolTimer();
-		//检查合约定义中的缓存包
-		void checkInstrumentDefSpoolTimer(int sock);
-		//检查快照中的缓存包
-		void checkMarketRecoverySpoolTimer(int sock);
 
 		//清空实时行情包缓存
 		void clearIncrementalSpool();
-		//清空合约定义行情包缓存
-		void clearInstrumentDefSpool();
-		//清空快照行情包缓存
-		void clearMarketRecoverySpool();
 
 		//订阅组播
 		//订阅Incremental Feed
@@ -61,23 +49,14 @@ namespace MDP
 		void subscribeInstrumentDef();
 		//退出组播
 		void unsubscribe(int socket);
-
-		//Incremental状态设置
-		//void setOnIncremental( bool value ) { m_bOnIncremental = value; }
-		//bool isOnIncremental() { return m_bOnIncremental; }
-
+		
 		//Instrument Definition服务状态设置
 		void setOnInstrumentDef( bool value ) { m_bOnInstrumentDef = value; }
 		bool isOnInstrumentDef() { return m_bOnInstrumentDef; }
 
-		//合约定义获取状态设置
-		//void setInstDefComplete( bool value ) { m_InstDefComplete = value; }
-		//bool isInsDefComplete() { return m_InstDefComplete; }
-
 		//Market Recovery服务状态设置
 		void setOnMarketRecovery( bool value ) { m_bOnMarketRecovery = value; }
 		bool isOnMarketRecovery() { return m_bOnMarketRecovery; }
-
 
 		//包处理序号自增
 		void increaseIncrementalNextSeqNum() { ++m_IncrementalNextSeqNum; }

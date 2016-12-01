@@ -206,7 +206,8 @@ namespace MDP
 			MAPChannels::iterator j = m_mapChannels.find( *i );
 			if (j != m_mapChannels.end())
 			{
-				j->second->subscribeInstrumentDef();
+				//j->second->subscribeInstrumentDef();
+				j->second->subscribeIncremental();
 			}
 		}
 
@@ -298,7 +299,8 @@ namespace MDP
 					pBuf += 2;
 					len -= 2;
 
-					CarCallbacks carCbs(listener, &m_fLog);
+					//CarCallbacks carCbs(listener, &m_fLog);
+					CarCallbacks carCbs(listener);
 					listener.dispatchMessageByHeader(m_irRepoX.header(), &m_irRepoX)
 						.resetForDecode(pBuf , len)
 						.subscribe(&carCbs, &carCbs, &carCbs);

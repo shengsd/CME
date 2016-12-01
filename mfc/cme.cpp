@@ -34,7 +34,7 @@ Worker g_worker;
 
 BOOL CcmeApp::InitInstance()
 {
-	HANDLE hMutex = ::CreateMutex(NULL, FALSE, "mfc");
+	HANDLE hMutex = ::CreateMutex(NULL, FALSE, "CMEdemo");
 	if (GetLastError() == ERROR_ALREADY_EXISTS)
 		return FALSE;
 	// 如果一个运行在 Windows XP 上的应用程序清单指定要
