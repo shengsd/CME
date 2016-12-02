@@ -572,13 +572,6 @@ namespace MDP
 		}
 	}
 
-
-
-	void Initiator::onError( int socket )
-	{
-		//onDisconnect( connector, socket );
-	}
-
 	void Initiator::onError( )
 	{
 		//g_lpfnWriteLog(LOG_WARNING, "[onError]: select() error occurred, error code:%d\n", WSAGetLastError());
