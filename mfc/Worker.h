@@ -150,6 +150,28 @@ typedef struct tagInstrument
 	unsigned char MDSecurityTradingStatus;	//交易状态
 }Instrument;
 
+//创建FIX消息，函数中使用，可以自动销毁消息
+class CFIXMSG
+{
+public:
+	CFIXMSG(char * lpBeginString, char * lpMsgType)
+	{
+		lpMsg = CreateMessage(lpBeginString, lpMsgType);
+	}
+
+	~CFIXMSG()
+	{
+		DestroyMessage(lpMsg);
+	}
+
+	IMessage * GetMsg()
+	{
+		return lpMsg;
+	}
+
+private:
+	IMessage * lpMsg;
+};
 
 class Worker: public Application, public IApplication
 {
@@ -203,7 +225,7 @@ public:
 	void StopTrade();
 
 	///查询订单状态，开启交易后第一件事
-	void QueryOrderStatus();
+	void MassOrderStatusQuery();
 
 	///下单，回写(修改界面)
 	/**
@@ -221,7 +243,7 @@ public:
 	/**
 	*@param  ORDER& order 被改订单
 	*/
-	int ReplaceOrder(ORDER& order);
+	int AlterOrder(ORDER& order);
 
 	///下单、改单、撤单、订单查询反馈，成交回报
 	/**
@@ -233,7 +255,7 @@ public:
 	void CancelReject(const IMessage* pMsg);
 
 	///询价
-	int Quote(ORDER& order);
+	int RequestForQuote(ORDER& order);
 
 	///询价反馈
 	void QuoteAck(const IMessage* pMsg);

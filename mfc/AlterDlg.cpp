@@ -1,11 +1,9 @@
 // AlterDlg.cpp : 实现文件
-//
 
 #include "stdafx.h"
 #include "cme.h"
 #include "AlterDlg.h"
 #include "afxdialogex.h"
-
 
 // CAlterDlg 对话框
 
@@ -64,7 +62,7 @@ void CAlterDlg::OnBnClickedReplaceOrder()
 	strcpy(m_order.Price, m_csPrice);
 	strcpy(m_order.StopPx, m_csStopPx);
 	
-	g_worker.ReplaceOrder(m_order);
+	g_worker.AlterOrder(m_order);
 	CDialogEx::OnOK();
 }
 

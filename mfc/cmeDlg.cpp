@@ -679,5 +679,5 @@ void CcmeDlg::OnBnClickedRFQ()
 	}
 	_tcscpy_s(order.SecurityType, _countof(order.SecurityType), csSecurityType);
 
-	g_worker.Quote(order);
+	g_worker.RequestForQuote(order);
 }

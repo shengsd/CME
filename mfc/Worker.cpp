@@ -83,7 +83,7 @@ BOOL Worker::StartTrade()
 	{
 		WriteLog(LOG_INFO, _T("[Trade]: Start"));
 		//登录后发起历史委托查询
-		g_worker.QueryOrderStatus();
+		g_worker.MassOrderStatusQuery();
 
 		return TRUE;
 	}
@@ -103,9 +103,10 @@ void Worker::StopTrade()
 	WriteLog(LOG_INFO, _T("[Trade]: Stop"));
 }
 
-void Worker::QueryOrderStatus()
+void Worker::MassOrderStatusQuery()
 {
-	IMessage* pMsg = CreateMessage("FIX.4.2", "AF");
+	CFIXMSG msg("FIX.4.2", "AF");
+	IMessage* pMsg = msg.GetMsg();
 	HSFixMsgBody* pBody = pMsg->GetMsgBody();
 
 	//MassStatusReqID	Unique identifier for Order Mass Status Request as assigned by the client system.
@@ -127,18 +128,9 @@ void Worker::QueryOrderStatus()
 	pBody->SetFieldValue(FIELD::ManualOrderIndicator, "Y");
 
 	//发送消息
-	if(m_pTradeSession)
+	if(0 != SendMessageByID(pMsg, m_pTradeSession))
 	{
-		int iRet = SendMessageByID( pMsg, m_pTradeSession );
-		if(iRet != 0)
-		{
-			AfxMessageBox(_T("Send Fix Message Fail"));
-		}
-		DestroyMessage( pMsg );
-	}
-	else
-	{
-		AfxMessageBox(_T("Fix Session not initialized"));
+		AfxMessageBox(_T("Send Fix Message Fail"));
 	}
 }
 
@@ -148,7 +140,8 @@ int Worker::EnterOrder(ORDER& order)
 	//ORDER中可能信息不足，需要从合约列表中获取完整信息
 	strcpy(order.MsgType, "D");
 
-	IMessage* pMsg = CreateMessage("FIX.4.2", "D");
+	CFIXMSG msg("FIX.4.2", "D");
+	IMessage* pMsg = msg.GetMsg();
 	HSFixHeader *pHeader = pMsg->GetHeader();
 	HSFixMsgBody* pBody = pMsg->GetMsgBody();
 
@@ -245,15 +238,11 @@ int Worker::EnterOrder(ORDER& order)
 	pBody->SetFieldValue(FIELD::CtiCode, _T("1")); 
 
 	//发送消息
-	int iRet = SendMessageByID( pMsg, m_pTradeSession );
-	if(iRet != 0)
+	if(0 != SendMessageByID(pMsg, m_pTradeSession))
 	{
-		//_tcscpy_s( order.ErrorInfo, _countof(order.ErrorInfo), _T("Send Fix Message Fail") );
 		AfxMessageBox(_T("Send Fix Message Fail"));
-		DestroyMessage( pMsg );
 		return STATUS_FAIL;
 	}
-	DestroyMessage( pMsg );
 
 	//保存订单
 	order.OrdStatus[0] = 'P';//Pending
@@ -267,7 +256,8 @@ int Worker::CancelOrder(ORDER& order)
 	//发撤单消息
 	strcpy(order.MsgType, "F");
 
-	IMessage* pMsg = CreateMessage("FIX.4.2", "F");
+	CFIXMSG msg("FIX.4.2", "F");
+	IMessage* pMsg = msg.GetMsg();
 	HSFixHeader *pHeader = pMsg->GetHeader();
 	HSFixMsgBody* pBody = pMsg->GetMsgBody();
 
@@ -311,14 +301,11 @@ int Worker::CancelOrder(ORDER& order)
 	pBody->SetFieldValue(FIELD::CorrelationClOrdID, order.CorrelationClOrdID);
 
 	//发送消息  //即时失败也不改回被改订单
-	int iRet = SendMessageByID(pMsg, m_pTradeSession);
-	if(iRet != 0)
+	if(0 != SendMessageByID(pMsg, m_pTradeSession))
 	{
 		AfxMessageBox(_T("Send Fix Message Fail"));
-		DestroyMessage(pMsg);
 		return STATUS_FAIL;
 	}
-	DestroyMessage(pMsg);
 
 	//被改订单状态修改
 	ORDER oldOrder = {0};
@@ -339,12 +326,13 @@ int Worker::CancelOrder(ORDER& order)
 	return STATUS_SUCCESS;
 }
 
-int Worker::ReplaceOrder(ORDER& order)
+int Worker::AlterOrder(ORDER& order)
 {
 	//发改单消息
 	strcpy(order.MsgType, "G");
 
-	IMessage* pMsg = CreateMessage("FIX.4.2", "G");
+	CFIXMSG msg("FIX.4.2", "G");
+	IMessage* pMsg = msg.GetMsg();
 	HSFixHeader* pHeader = pMsg->GetHeader();
 	HSFixMsgBody* pBody = pMsg->GetMsgBody();
 
@@ -449,19 +437,9 @@ int Worker::ReplaceOrder(ORDER& order)
 	pBody->SetFieldValue(FIELD::OFMOverride, "N");
 
 	//发送消息  //即时失败也不改回被改订单
-	if(m_pTradeSession)
+	if(0 != SendMessageByID(pMsg, m_pTradeSession))
 	{
-		int iRet = SendMessageByID(pMsg, m_pTradeSession);
-		if(iRet != 0)
-		{
-			AfxMessageBox(_T("Send Fix Message Fail"));
-			return STATUS_FAIL;
-		}
-		DestroyMessage(pMsg);
-	}
-	else
-	{
-		AfxMessageBox(_T("Fix Session not initialized"));
+		AfxMessageBox(_T("Send Fix Message Fail"));
 		return STATUS_FAIL;
 	}
 
@@ -650,7 +628,7 @@ void Worker::CancelReject(const IMessage* pMsg)
 		fprintf(m_pfAuditTrail, "%s,", szSessionID);//7
 		fprintf(m_pfAuditTrail, "%s,", szFirmID);//8
 		fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::ManualOrderIndicator, ""));//9
-		fprintf(m_pfAuditTrail, "%s,", pHeader->GetFieldValueDefault(FIELD::MsgType, ""));//10
+		fprintf(m_pfAuditTrail, "%s/%s,", pHeader->GetFieldValueDefault(FIELD::MsgType, ""), pBody->GetFieldValueDefault(FIELD::CxlRejResponseTo, ""));//10
 		fprintf(m_pfAuditTrail, ",,");//11,12
 		fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::ExecID, ""));//13
 		//fprintf(m_pfAuditTrail, "%l,", m_MessageLinkID);//14
@@ -692,7 +670,7 @@ void Worker::CancelReject(const IMessage* pMsg)
 	WriteLog(LOG_INFO, "[Worker::CancelReject]: ClOrdID=%s, Text=%s", order.ClOrdID, pBody->GetFieldValueDefault(FIELD::Text, ""));
 }
 
-int Worker::Quote(ORDER& order)
+int Worker::RequestForQuote(ORDER& order)
 {
 	strcpy(order.MsgType, "R");
 
