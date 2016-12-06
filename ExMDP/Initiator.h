@@ -80,8 +80,10 @@ namespace MDP
 	private:
 		//引擎日志文件 debug模式下可包含效行情解析日志
 		std::ofstream m_fLog;
-		//日志函数
+		//引擎日志函数
 		void WriteLog(char* szFormat, ...);
+		//写日志锁
+		CRITICAL_SECTION m_csLog;
 
 		//Channel 配置文件
 		std::string m_configFile;
@@ -128,16 +130,13 @@ namespace MDP
 
 		//根据Socket查找对应Channel和数据类型
 		MapSocketToSocketInfo m_mapSocket2Info;
-		
-		void Block( bool poll = 0, long timeout = 0 );
-		bool addRead( int socket );
-		bool drop( int socket );
+
 		void ProcessReadSet( fd_set& );
 		void BuildSet( const Sockets&, fd_set& );
 		Sockets m_readSockets;
 		timeval m_timeval;
 
-		bool onData( int );
+		bool onData( const int sock );
 
 		void onError();
 

@@ -52,9 +52,8 @@ BOOL Worker::StartTrade()
 {
 	TCHAR cfgPath[MAX_PATH];
 	GetModuleFileName(NULL, cfgPath, MAX_PATH);
-	strcpy(strrchr(cfgPath, '\\'), "\\FIX_CME.ini");
-	//strcpy(strrchr(cfgPath, '\\'), "\\CLIENT.CFG");
-	WriteLog(LOG_INFO, _T("%s"), cfgPath);
+	strcpy(strrchr(cfgPath, '\\'), "\\Config\\FIX_CME.ini");
+
 	/*
 	// 创建会话工厂
 	ISessionFactory* lpSessionFactory=CreateSessionFactory();
@@ -971,7 +970,7 @@ BOOL Worker::GetOrderByClOrderID(const CString csClOrderID, ORDER& order)
 }
 
 
-UINT Worker::startMktDt()
+UINT Worker::startQuote()
 {
 	WriteLog(LOG_INFO, "MDP3.0 Engine Starting, please wait...");
 	//WriteLog(LOG_ERROR, "%s", szConfigPath);
@@ -999,15 +998,11 @@ UINT Worker::startMktDt()
 		WriteLog(LOG_ERROR, "Start MDP3.0 Engine failed! [%s]", configStruct.errorInfo);
 		return -1;
 	}
-
-	//Sleep(1000*500);
-
-	//stop();
 	WriteLog(LOG_INFO, "MDP3.0 Engine Started!");
 	return 0;
 }
 
-UINT Worker::stopMktDt()
+UINT Worker::stopQuote()
 {
 	WriteLog(LOG_INFO, "Engine Stopping, please wait...");
 	if (StopEngine())

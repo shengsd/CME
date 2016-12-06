@@ -193,8 +193,8 @@ public:
 	void __cdecl WriteLog(int nLevel, const TCHAR *szFormat, ...);
 
 	//行情引擎开关
-	UINT startMktDt();
-	UINT stopMktDt();
+	UINT startQuote();
+	UINT stopQuote();
 
 	//用于MDP3.0行情调试
 	std::ofstream m_fLog;

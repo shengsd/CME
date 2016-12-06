@@ -14,28 +14,28 @@ namespace MDP
 		Initiator* m_initiator;
 
 		//从sock读取包，connectType为包类型
-		bool read( int sock, int connectType );
+		bool read( const int sock, int connectType );
 
 		//有效行情包推送
 		void PushPacket( Packet& packet);
 
 		//处理实时行情包
-		void processIncrementalPacket( Packet& packet);
+		void processIncrementalPacket( Packet& packet, const int sock);
 		//处理合约定义行情包
-		void processInstrumentDefPacket( Packet& packet, int sock);
+		void processInstrumentDefPacket( Packet& packet, const int sock);
 		//处理快照行情包
-		void processMarketRecoveryPacket( Packet& packet, int sock);
+		void processMarketRecoveryPacket( Packet& packet, const int sock);
 
 		//缓存实时行情包（序号过大）
 		void spoolIncrementalPacket( Packet& packet );
 
 		//推送合约定义行情包之前，还需要找停止条件：消息数量达到Tag 911-TotNumReports
-		void onPushInstrumentDefPacket( Packet& packet, int sock );
+		void onPushInstrumentDefPacket( Packet& packet, const int sock );
 		//同样的，快照的停止条件：消息数量达到Tag 911-TotNumReports，还需要获取tag 369-LastMsgSeqNumProcessed，+1后作为实时行情推送的开始序号
-		void onPushMarketRecoveryPacket( Packet& packet, int sock );
+		void onPushMarketRecoveryPacket( Packet& packet, const int sock );
 
 		//检查实时行情中的缓存包是否可以推送
-		void checkIncrementalSpoolTimer();
+		void checkIncrementalSpoolTimer(const int sock);
 
 		//清空实时行情包缓存
 		void clearIncrementalSpool();
@@ -48,7 +48,7 @@ namespace MDP
 		//订阅Instrument Replay Feed
 		void subscribeInstrumentDef();
 		//退出组播
-		void unsubscribe(int socket);
+		void unsubscribe(const int socket);
 		
 		//Instrument Definition服务状态设置
 		void setOnInstrumentDef( bool value ) { m_bOnInstrumentDef = value; }

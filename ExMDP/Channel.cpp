@@ -46,7 +46,7 @@ namespace MDP
 		m_fPackets << std::endl;
 	}
 	
-	bool Channel::read( int sock, int connectType )
+	bool Channel::read( const int sock, int connectType )
 	{
 		//read packet from socket
 		m_fEvents << "[Channel::read]: sock:" << sock << " connectType:" << connectType ;
@@ -73,7 +73,7 @@ namespace MDP
 #endif
 			//for test
 			//pushPacket(packet, true);
-			processIncrementalPacket(packet);
+			processIncrementalPacket(packet, sock);
 			break;
 		case 2://Instrument Definition feed
 
@@ -102,7 +102,7 @@ namespace MDP
 		return true;
 	}
 
-	void Channel::processIncrementalPacket(Packet& packet)
+	void Channel::processIncrementalPacket(Packet& packet, const int sock)
 	{
 		if (packet.getSeqNum() == m_IncrementalNextSeqNum)
 		{
@@ -120,11 +120,11 @@ namespace MDP
 			//discard duplicate packet
 			m_fEvents << "Action: Discard this packet\n";
 		}
-		checkIncrementalSpoolTimer();
+		checkIncrementalSpoolTimer(sock);
 	}
 
 	//文档中建议开始条件是包序号为1，结束条件是处理消息数达到Tag 911-TotNumReports
-	void Channel::processInstrumentDefPacket(Packet& packet, int sock)
+	void Channel::processInstrumentDefPacket(Packet& packet, const int sock)
 	{
 		//Recovery状态中才处理
 		if ( !isOnInstrumentDef() )
@@ -142,9 +142,20 @@ namespace MDP
 		}
 		else
 		{
-			//discard packet and reset
+			//不连续则重置。不连续可能是跳过了一个包  或者是新的一轮循环
 			resetInstrumentDef();
-			m_fEvents << "Action: Discard this packet\n";
+			//如果是新的一轮循环，需要再次推送
+			if (packet.getSeqNum() == m_InstrumentDefNextSeqNum)
+			{
+				onPushInstrumentDefPacket(packet, sock);
+				PushPacket(packet);
+				increaseInstrumentDefNextSeqNum();
+				m_fEvents << "Action: Push this packet\n";
+			}
+			else
+			{
+				m_fEvents << "Action: Discard this packet\n";
+			}
 		}
 
 		if (!isOnInstrumentDef())
@@ -154,7 +165,7 @@ namespace MDP
 		}
 	}
 
-	void Channel::processMarketRecoveryPacket( Packet& packet, int sock )
+	void Channel::processMarketRecoveryPacket( Packet& packet, const int sock )
 	{
 		//不在恢复状态中？
 		if (!isOnMarketRecovery())
@@ -173,9 +184,19 @@ namespace MDP
 		}
 		else
 		{
-			//discard packet and reset
+			//不连续可能是跳过了一个包  或者是新的一轮循环
 			resetMarketRecovery();
-			m_fEvents << "Action: Discard this packet\n";
+			if (packet.getSeqNum() == m_MarketRecoveryNextSeqNum)
+			{
+				onPushMarketRecoveryPacket( packet, sock );
+				PushPacket(packet);
+				increaseMarketRecoveryNextSeqNum();
+				m_fEvents << "Action: Push this packet\n";
+			}
+			else
+			{
+				m_fEvents << "Action: Discard this packet\n";
+			}
 		}
 
 		if (!isOnMarketRecovery())
@@ -200,7 +221,7 @@ namespace MDP
 		}
 	}
 
-	void Channel::checkIncrementalSpoolTimer()
+	void Channel::checkIncrementalSpoolTimer(const int sock)
 	{
 		while (!m_IncrementalPacketSpool.empty())
 		{
@@ -233,6 +254,7 @@ namespace MDP
 					//既不在收合约也不在恢复快照
 					if (!isOnInstrumentDef() && !isOnMarketRecovery())
 					{
+						unsubscribe(sock);
 						subscribeInstrumentDef();
 					}
 					else
@@ -265,7 +287,7 @@ namespace MDP
 		}
 	}
 
-	void Channel::onPushInstrumentDefPacket( Packet& packet, int sock )
+	void Channel::onPushInstrumentDefPacket( Packet& packet, const int sock )
 	{
 		//Packet Header
 		//	--Packet Sequence Num 4Bytes
@@ -301,8 +323,9 @@ namespace MDP
 						m_fEvents << "[onPushInstrumentDefPacket]: Completed, received " << m_InstrumentDefProcessedNum << " messages." << std::endl;
 						unsubscribe(sock);
 						setOnInstrumentDef(false);
-						//收完合约后，订阅快照
+						//收完合约后，订阅快照和实时行情
 						subscribeMarketRecovery();
+						subscribeIncremental();
 					}
 				}
 			}
@@ -312,7 +335,7 @@ namespace MDP
 	}
 
 	//SnapShot停止后需要获取实时行情下一个要处理的包序号
-	void Channel::onPushMarketRecoveryPacket( Packet& packet, int sock )
+	void Channel::onPushMarketRecoveryPacket( Packet& packet, const int sock )
 	{
 		//Packet Header
 		//	--Packet Sequence Num 4Bytes
@@ -392,7 +415,7 @@ namespace MDP
 		}
 	}
 
-	void Channel::unsubscribe(int socket)
+	void Channel::unsubscribe(const int socket)
 	{
 		m_initiator->Unsubscribe(socket);
 		m_fEvents << "Channel ID:"<< m_ChannelID << ", unsubscribe feed, socket:" << socket << std::endl;

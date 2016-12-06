@@ -49,7 +49,7 @@ UINT Quote( LPVOID pParam )
 	pDlg->GetDlgItem(IDC_BUTTON5)->EnableWindow(FALSE);
 	if (bQuote)//stop
 	{
-		if (!g_worker.stopMktDt())
+		if (!g_worker.stopQuote())
 		{
 			pDlg->GetDlgItem(IDC_BUTTON5)->SetWindowTextA(_T("Quote ON"));
 			pDlg->GetDlgItem(IDC_BUTTON5)->EnableWindow(TRUE);
@@ -64,7 +64,7 @@ UINT Quote( LPVOID pParam )
 	}
 	else//start
 	{
-		if (!g_worker.startMktDt())
+		if (!g_worker.startQuote())
 		{
 			pDlg->GetDlgItem(IDC_BUTTON5)->SetWindowTextA(_T("Quote OFF"));
 			pDlg->GetDlgItem(IDC_BUTTON5)->EnableWindow(TRUE);
@@ -554,7 +554,7 @@ void CcmeDlg::OnBnClickedQuote()
 	this->GetDlgItem(IDC_BUTTON5)->EnableWindow(FALSE);
 	if (bQuote)//stop
 	{
-		if (!g_worker.stopMktDt())
+		if (!g_worker.stopQuote())
 		{
 			this->GetDlgItem(IDC_BUTTON5)->SetWindowTextA(_T("Quote ON"));
 			this->GetDlgItem(IDC_BUTTON5)->EnableWindow(TRUE);
@@ -567,7 +567,7 @@ void CcmeDlg::OnBnClickedQuote()
 	}
 	else//start
 	{
-		if (!g_worker.startMktDt())
+		if (!g_worker.startQuote())
 		{
 			this->GetDlgItem(IDC_BUTTON5)->SetWindowTextA(_T("Quote OFF"));
 			this->GetDlgItem(IDC_BUTTON5)->EnableWindow(TRUE);

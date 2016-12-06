@@ -3,12 +3,12 @@
 #include "TinyXML/tinystr.h"
 #include "TinyXML/tinyxml.h"
 
-
 namespace MDP
 {
 	Initiator::Initiator()
 	{
 		InitializeCriticalSection( &m_csData );
+		InitializeCriticalSection( &m_csLog );
 		m_hEventData = CreateEvent( NULL, TRUE, FALSE, NULL );
 		m_hEventStop = CreateEvent( NULL, TRUE, FALSE, NULL );
 		WORD version = MAKEWORD( 2, 2 );
@@ -21,6 +21,7 @@ namespace MDP
 	Initiator::~Initiator()
 	{
 		DeleteCriticalSection( &m_csData );
+		DeleteCriticalSection( &m_csLog );
 		CloseHandle(m_hEventStop);
 		CloseHandle(m_hEventData);
 		WSACleanup();
@@ -31,22 +32,29 @@ namespace MDP
 		char buffer[1024];
 		SYSTEMTIME st;
 		GetLocalTime(&st);
-		sprintf(buffer, "%04d%02d%02d %02d:%02d:%02d:%03d - ", st.wYear, 
-			st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
+		sprintf(buffer, "%04d%02d%02d %02d:%02d:%02d:%03d - ", st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
 		va_list args;
 		va_start (args, szFormat);
 		vsprintf (buffer+strlen(buffer), szFormat, args);
 		va_end (args);
+		EnterCriticalSection(&m_csLog);
 		m_fLog << buffer << std::endl;
+		LeaveCriticalSection(&m_csLog);
 	}
 
 	int Initiator::Start( ConfigStruct* configStruct, Application* application)
 	{
+		WriteLog("[Initiator::Start]: Called!");
 		if (configStruct == NULL)
+		{
+			WriteLog("[Initiator::Start]: Invalid ConfigStruct*");
 			return 1;
+		}
+
 		if (application == NULL)
 		{
-			strcpy(configStruct->errorInfo, "[Start]: Invalid Param: Application* (NULL)");
+			strcpy(configStruct->errorInfo, "[Initiator::Start]: Invalid Application*");
+			WriteLog("[Initiator::Start]: Invalid Application*");
 			return 1;
 		}
 
@@ -70,18 +78,17 @@ namespace MDP
 		m_fLog.open(szPath, std::ofstream::app );
 		if ( !m_fLog.is_open() )
 		{
-			strcpy(configStruct->errorInfo, "[Start]: Open log file failed!\n");
+			strcpy(configStruct->errorInfo, "[Initiator::Start]: Open log file failed!");
+			WriteLog("[Initiator::Start]: Open log file failed!");
 			return 1;
 		}
 
 		//初始化，读取XML配置文件，创建Channel
 		TiXmlDocument doc( m_configFile.c_str() );
-
 		bool loadOkay = doc.LoadFile();
-
 		if ( !loadOkay )	//printf( "Could not load test file 'config.xml'. Error='%s'. Exiting.\n", doc.ErrorDesc() );
 		{
-			sprintf(configStruct->errorInfo, "[Start]: Could not load config.xml(%s). Exiting.\n", m_configFile.c_str());
+			sprintf(configStruct->errorInfo, "[Initiator::Start]: Could not load config.xml(%s). Exiting.\n", m_configFile.c_str());
 			return 1;
 		}
 
@@ -129,7 +136,8 @@ namespace MDP
 		//channel数量为0
 		if (!m_setChannelIDs.size())
 		{
-			strcpy(configStruct->errorInfo, "[Start]: No Channel defined!\n");
+			strcpy(configStruct->errorInfo, "[Initiator::Start]: No Channel defined!");
+			WriteLog("[Initiator::Start]: No Channel defined!");
 			return 1;
 		}
 
@@ -144,21 +152,21 @@ namespace MDP
 		//读取SBE解析文件 templates_FixBinary.sbeir
 		if ( m_irRepo.loadFromFile( m_templateFile.c_str() ) == -1 || m_irRepoX.loadFromFile( m_templateFile.c_str() ) == -1 )
 		{
-			strcpy(configStruct->errorInfo, "[Start]: Could not load IR!\n");
+			strcpy(configStruct->errorInfo, "[Initiator::Start]: Could not load IR!\n");
 			return 1;
 		}
 
 		//创建接收线程
 		if ( (m_hThreads[0] = (HANDLE)_beginthreadex(NULL, 0, &receiverThread, this, 0, NULL)) == 0 )
 		{
-			strcpy(configStruct->errorInfo, "[Start]: Unable to spawn receiver thread!\n");
+			strcpy(configStruct->errorInfo, "[Initiator::Start]: Unable to spawn receiver thread!\n");
 			return 1;
 		}
 
 		//创建处理线程
 		if ( (m_hThreads[1] = (HANDLE)_beginthreadex(NULL, 0, &processorThread, this, 0, NULL)) == 0 )
 		{
-			strcpy(configStruct->errorInfo, "[Start]: Unable to spawn processor thread!\n");
+			strcpy(configStruct->errorInfo, "[Initiator::Start]: Unable to spawn processor thread!\n");
 			return 1;
 		}
 		return 0;
@@ -166,6 +174,7 @@ namespace MDP
 
 	void Initiator::Stop()
 	{
+		WriteLog("[Initiator::Stop]: Called!");
 		SetEvent(m_hEventStop);
 
 		//等待接收线程退出
@@ -188,8 +197,6 @@ namespace MDP
 			delete j->second;
 		}
 		m_mapChannels.clear();
-
-		WriteLog("Engine Stopped");
 		m_fLog.close();
 	}
 
@@ -206,47 +213,38 @@ namespace MDP
 			MAPChannels::iterator j = m_mapChannels.find( *i );
 			if (j != m_mapChannels.end())
 			{
-				//j->second->subscribeInstrumentDef();
 				j->second->subscribeIncremental();
 			}
 		}
 
 		while (WaitForSingleObject(m_hEventStop, 0) != WAIT_OBJECT_0)
 		{
-			static int count = 0;
-			Block(false, 1);
-			WriteLog( "[onReceiverStart]: inLoop %d",  ++count);
+			fd_set readSet;
+			FD_ZERO( &readSet );
+			BuildSet( m_readSockets, readSet );
+
+			int result = select( FD_SETSIZE, &readSet, NULL, NULL, &m_timeval );//&writeSet, &exceptSet, &m_timeval );
+
+			if ( result == 0 )
+			{
+#ifdef _DEBUG
+				WriteLog("select() timeout!");
+#endif
+			}
+			else if ( result > 0 )
+			{
+				ProcessReadSet( readSet );
+			}
+			else
+			{
+#ifdef _DEBUG
+				WriteLog( "select SOCKET_ERROR GetLastError():%d", GetLastError() );
+				Sleep(2000);
+#endif
+			}
 		}
 
 		WriteLog("[ReceiveThread]: Receiver thread exit");
-	}
-
-	void Initiator::Block( bool poll, long timeout )
-	{
-		fd_set readSet;
-		FD_ZERO( &readSet );
-		BuildSet( m_readSockets, readSet );
-
-		int result = select( FD_SETSIZE, &readSet, NULL, NULL, &m_timeval );//&writeSet, &exceptSet, &m_timeval );
-
-		if ( result == 0 )
-		{
-			//strategy.onTimeout( *this );
-#ifdef _DEBUG
-			WriteLog("select() timeout!");
-#endif // _DEBUG
-		}
-		else if ( result > 0 )
-		{
-			ProcessReadSet( readSet );
-		}
-		else
-		{
-#ifdef _DEBUG
-			WriteLog( "select SOCKET_ERROR GetLastError():%d", GetLastError() );
-			Sleep(2000);
-#endif // _DEBUG
-		}
 	}
 
 	void Initiator::BuildSet( const Sockets& sockets, fd_set& watchSet )
@@ -286,7 +284,7 @@ namespace MDP
 				if (FrontPacket(packet) == -1)
 					continue;
 
-				WriteLog("[onProcessorStart]: packet seqNum:%d", packet.getSeqNum() );
+				WriteLog("[ProcessThread]: packet seqNum:%d", packet.getSeqNum() );
 
 				char* pBuf = packet.getPacketPointer() + 12;//sizeof(PacketHeader);
 				int len = packet.getPacketSize() - 12;
@@ -307,14 +305,14 @@ namespace MDP
 
 					if (carCbs.getStatus())
 					{
-						WriteLog("[onProcessorStart]: parse success, message template ID:%d", listener.getTemplateId());
+						//WriteLog("[ProcessThread]: parse success, message template ID:%d", listener.getTemplateId());
 						//解析成功
 						//g_lpfnWriteLog(LOG_DEBUG, "[onProcessorStart]: packet parse success");
 						m_application->onMarketData(carCbs.getFieldMapPtr(), listener.getTemplateId());
 					}
 					else
 					{
-						WriteLog("[onProcessorStart]: parse fail, left:%d", len);
+						WriteLog("[ProcessThread]: parse fail, left:%d", len);
 						break;
 					}
 
@@ -327,7 +325,7 @@ namespace MDP
 			}
 		}
 		//m_fLog << "[onProcessorStart]: left:" << m_packetQueue.size() << std::endl;
-		WriteLog("Processor thread exit...");
+		WriteLog("[ProcessThread]: Processor thread exit...");
 	}
 
 	bool Initiator::SubscribeInstrumentDefinition( const std::string& c )
@@ -366,19 +364,21 @@ namespace MDP
 	{
 		MAPChannels::iterator i = m_mapChannels.find( c );
 		if (i == m_mapChannels.end())
+		{
+			WriteLog("[SubscribeIncremental]: Can't find pChannel of channel id=%s", c.c_str());
 			return false;
-
+		}
 		Channel* pChannel = i->second;
-
 		///Incremental UDP Feed A
 		std::string str = c + "IA";
 		MAPConnectionIDtoInfo::iterator j = m_mapConnID2Info.find(str);
 		if (j == m_mapConnID2Info.end())
+		{
+			WriteLog("[SubscribeIncremental]: Can't find connection info of connection id=%s", str.c_str());
 			return false;
-		//throw ConfigError("can't find IA connection info");
+		}
 
 		ConnectionInfo& cIA = j->second;
-
 		int result = UDPconnect( cIA.ip, atoi(cIA.port.c_str()), m_localInterface );
 		if ( result != -1)
 		{
@@ -398,8 +398,10 @@ namespace MDP
 		str = c + "IB";
 		j = m_mapConnID2Info.find(str);
 		if (j == m_mapConnID2Info.end())
+		{
+			WriteLog("[SubscribeIncremental]: Can't find connection info of connection id=%s", str.c_str());
 			return false;
-		//	throw ConfigError("can't find IB connection info");
+		}
 		ConnectionInfo& cIB = j->second;
 		result = UDPconnect( cIB.ip, atoi(cIB.port.c_str()), m_localInterface );
 		if ( result != -1)
@@ -414,7 +416,6 @@ namespace MDP
 				delete iter->second; 
 			m_mapSocket2Info[result] = pSocketInfoIB;
 		}
-
 		return true;
 	}
 
@@ -466,8 +467,6 @@ namespace MDP
 	
 	int Initiator::UDPconnect(const std::string& address, const int port, const std::string& localInterface)
 	{
-		//m_fLog << "Connect to "<< address << ":" << port << std::endl;
-		//g_lpfnWriteLog(LOG_DEBUG, "Connect to %s:%d\n", address.c_str(), port);
 		struct sockaddr_in local;
 		struct ip_mreq imreq;
 		int iResult = 0;
@@ -476,14 +475,14 @@ namespace MDP
 		int ListenSocket = socket(AF_INET, SOCK_DGRAM, 0 );
 		if ( ListenSocket == SOCKET_ERROR )
 		{
-			//g_lpfnWriteLog(LOG_DEBUG, "[UDPconnect]: UDPconnect socket error\n" );
+			WriteLog("[Initiator::UDPconnect]: socket() error");
 			return -1;
 		}
 
 		iResult = setsockopt( ListenSocket, SOL_SOCKET, SO_REUSEADDR, (char *)&bOptVal, bOptLen );
 		if ( iResult == SOCKET_ERROR )
 		{
-			//g_lpfnWriteLog(LOG_DEBUG, "[UDPconnect]: set sock reuse addr error, Error code:%d\n", WSAGetLastError() );
+			WriteLog("[Initiator::UDPconnect]: setsockopt() SO_REUSEADDR error");
 			return -1;
 		}
 
@@ -496,37 +495,27 @@ namespace MDP
 		iResult = bind( ListenSocket,(struct sockaddr*)&local, sizeof(struct sockaddr_in) );
 		if( SOCKET_ERROR == iResult )
 		{
-			//g_lpfnWriteLog(LOG_DEBUG, "[UDPconnect]: UDPconnect bind error, Error code:%d\n", WSAGetLastError() );
+			WriteLog("[Initiator::UDPconnect]: bind() error");
 			return -1;
 		}
 		//加入多播组
 		imreq.imr_interface.s_addr = htonl(INADDR_ANY);
-		//imreq.imr_interface.s_addr = inet_addr("10.249.43.131");//local interface
-		//imreq.imr_interface.s_addr = inet_addr("172.17.120.92");
 		//imreq.imr_interface.s_addr = inet_addr(localInterface.c_str());
 		imreq.imr_multiaddr.s_addr = inet_addr(address.c_str());
 
 		iResult = setsockopt( ListenSocket, IPPROTO_IP, IP_ADD_MEMBERSHIP, (const char *)&imreq, sizeof(imreq));
 		if ( iResult == SOCKET_ERROR )
 		{
+			WriteLog("[Initiator::UDPconnect]: setsockopt() IP_ADD_MEMBERSHIP error");
 			//g_lpfnWriteLog(LOG_DEBUG, "[UDPconnect]: setsockopt error, Error code:%d\n", WSAGetLastError() );
 			return -1;
 		}
 
-		addRead( ListenSocket );
-		//addConnect( ListenSocket );
-		return ListenSocket;
-	}
-
-	bool Initiator::addRead( int s )
-	{
 		u_long opt = 1;
-		::ioctlsocket( s, FIONBIO, &opt );
-		Sockets::iterator i = m_readSockets.find( s );
-		if( i != m_readSockets.end() )
-			return false;
-		m_readSockets.insert( s );
-		return true;
+		::ioctlsocket( ListenSocket, FIONBIO, &opt );
+		m_readSockets.insert( ListenSocket );
+
+		return ListenSocket;
 	}
 
 	void Initiator::UDPdisconnect(int socket, const std::string& address, const std::string& localInterface)
@@ -541,24 +530,17 @@ namespace MDP
 		{
 			WriteLog( "[UDPdisconnect]: setsockopt error, Error code:%d\n", WSAGetLastError() );
 		}
-		drop(socket);
-	}
-
-	bool Initiator::drop( int s )
-	{
-		Sockets::iterator i = m_readSockets.find( s );
+		Sockets::iterator i = m_readSockets.find( socket );
 
 		if ( i != m_readSockets.end() )
 		{
-			shutdown( s, 2 );
-			closesocket( s );
-			m_readSockets.erase( s );
-			return true;
+			shutdown( socket, 2 );
+			closesocket( socket );
+			m_readSockets.erase( socket );
 		}
-		return false;
 	}
 
-	bool Initiator::onData( int sock )
+	bool Initiator::onData( const int sock )
 	{
 		MapSocketToSocketInfo::iterator i = m_mapSocket2Info.find( sock );
 		if ( i != m_mapSocket2Info.end() )
