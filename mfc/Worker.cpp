@@ -1,6 +1,6 @@
 #include "StdAfx.h"
 #include "Worker.h"
-#include "mfc.h"
+#include "cme.h"
 #include <io.h>
 #include <direct.h>
 
@@ -9,8 +9,7 @@ Worker::Worker(void)
 	m_pTradeSession = NULL;
 	m_hEventReadyToTrade = CreateEvent(NULL, TRUE, FALSE, NULL);
 	InitializeCriticalSection(&m_OrderLock);
-	m_pfAuditTrail = fopen("Audit Trail.txt","w+");
-	//m_MessageLinkID = 0;
+	m_pfAuditTrail = fopen("Audit_Trail.log","w+");
 }
 
 Worker::~Worker(void)
@@ -53,9 +52,8 @@ BOOL Worker::StartTrade()
 {
 	TCHAR cfgPath[MAX_PATH];
 	GetModuleFileName(NULL, cfgPath, MAX_PATH);
-	strcpy(strrchr(cfgPath, '\\'), "\\FIX_CME.ini");
-	//strcpy(strrchr(cfgPath, '\\'), "\\CLIENT.CFG");
-	WriteLog(LOG_INFO, _T("%s"), cfgPath);
+	strcpy(strrchr(cfgPath, '\\'), "\\Config\\FIX_CME.ini");
+
 	/*
 	// 创建会话工厂
 	ISessionFactory* lpSessionFactory=CreateSessionFactory();
@@ -84,7 +82,7 @@ BOOL Worker::StartTrade()
 	{
 		WriteLog(LOG_INFO, _T("[Trade]: Start"));
 		//登录后发起历史委托查询
-		g_worker.QueryOrderStatus();
+		g_worker.MassOrderStatusQuery();
 
 		return TRUE;
 	}
@@ -104,9 +102,10 @@ void Worker::StopTrade()
 	WriteLog(LOG_INFO, _T("[Trade]: Stop"));
 }
 
-void Worker::QueryOrderStatus()
+void Worker::MassOrderStatusQuery()
 {
-	IMessage* pMsg = CreateMessage("FIX.4.2", "AF");
+	CFIXMSG msg("FIX.4.2", "AF");
+	IMessage* pMsg = msg.GetMsg();
 	HSFixMsgBody* pBody = pMsg->GetMsgBody();
 
 	//MassStatusReqID	Unique identifier for Order Mass Status Request as assigned by the client system.
@@ -128,18 +127,9 @@ void Worker::QueryOrderStatus()
 	pBody->SetFieldValue(FIELD::ManualOrderIndicator, "Y");
 
 	//发送消息
-	if(m_pTradeSession)
+	if(0 != SendMessageByID(pMsg, m_pTradeSession))
 	{
-		int iRet = SendMessageByID( pMsg, m_pTradeSession );
-		if(iRet != 0)
-		{
-			AfxMessageBox(_T("Send Fix Message Fail"));
-		}
-		DestroyMessage( pMsg );
-	}
-	else
-	{
-		AfxMessageBox(_T("Fix Session not initialized"));
+		AfxMessageBox(_T("Send Fix Message Fail"));
 	}
 }
 
@@ -149,7 +139,8 @@ int Worker::EnterOrder(ORDER& order)
 	//ORDER中可能信息不足，需要从合约列表中获取完整信息
 	strcpy(order.MsgType, "D");
 
-	IMessage* pMsg = CreateMessage("FIX.4.2", "D");
+	CFIXMSG msg("FIX.4.2", "D");
+	IMessage* pMsg = msg.GetMsg();
 	HSFixHeader *pHeader = pMsg->GetHeader();
 	HSFixMsgBody* pBody = pMsg->GetMsgBody();
 
@@ -232,7 +223,7 @@ int Worker::EnterOrder(ORDER& order)
 	//期货还是期权 FUT=Future OPT=Option
 	pBody->SetFieldValue(FIELD::SecurityType, order.SecurityType);
 
-	//The type of business conducted. 0=Customer 1=Firm 
+	//The type of business conducted. 0=Customer 1=Firm
 	pBody->SetFieldValue(FIELD::CustomerOrFirm, _T("1"));
 
 	//MaxShow 冰山单里的最大显示数量，这里非0才添加该字段
@@ -245,24 +236,10 @@ int Worker::EnterOrder(ORDER& order)
 	//CtiCode TODO: 不是很清楚有什么用
 	pBody->SetFieldValue(FIELD::CtiCode, _T("1")); 
 
-
-
 	//发送消息
-	if(m_pTradeSession)
+	if(0 != SendMessageByID(pMsg, m_pTradeSession))
 	{
-		int iRet = SendMessageByID( pMsg, m_pTradeSession );
-		if(iRet != 0)
-		{
-			//_tcscpy_s( order.ErrorInfo, _countof(order.ErrorInfo), _T("Send Fix Message Fail") );
-			AfxMessageBox(_T("Send Fix Message Fail"));
-			return STATUS_FAIL;
-		}
-		DestroyMessage( pMsg );
-	}
-	else
-	{
-		//_tcscpy_s( order.ErrorInfo, _countof(order.ErrorInfo), _T("Fix Session not initialized") );
-		AfxMessageBox(_T("Fix Session not initialized"));
+		AfxMessageBox(_T("Send Fix Message Fail"));
 		return STATUS_FAIL;
 	}
 
@@ -278,7 +255,8 @@ int Worker::CancelOrder(ORDER& order)
 	//发撤单消息
 	strcpy(order.MsgType, "F");
 
-	IMessage* pMsg = CreateMessage("FIX.4.2", "F");
+	CFIXMSG msg("FIX.4.2", "F");
+	IMessage* pMsg = msg.GetMsg();
 	HSFixHeader *pHeader = pMsg->GetHeader();
 	HSFixMsgBody* pBody = pMsg->GetMsgBody();
 
@@ -322,19 +300,9 @@ int Worker::CancelOrder(ORDER& order)
 	pBody->SetFieldValue(FIELD::CorrelationClOrdID, order.CorrelationClOrdID);
 
 	//发送消息  //即时失败也不改回被改订单
-	if(m_pTradeSession)
+	if(0 != SendMessageByID(pMsg, m_pTradeSession))
 	{
-		int iRet = SendMessageByID(pMsg, m_pTradeSession);
-		if(iRet != 0)
-		{
-			AfxMessageBox(_T("Send Fix Message Fail"));
-			return STATUS_FAIL;
-		}
-		DestroyMessage(pMsg);
-	}
-	else
-	{
-		AfxMessageBox(_T("Fix Session not initialized"));
+		AfxMessageBox(_T("Send Fix Message Fail"));
 		return STATUS_FAIL;
 	}
 
@@ -357,12 +325,13 @@ int Worker::CancelOrder(ORDER& order)
 	return STATUS_SUCCESS;
 }
 
-int Worker::ReplaceOrder(ORDER& order)
+int Worker::AlterOrder(ORDER& order)
 {
 	//发改单消息
 	strcpy(order.MsgType, "G");
 
-	IMessage* pMsg = CreateMessage("FIX.4.2", "G");
+	CFIXMSG msg("FIX.4.2", "G");
+	IMessage* pMsg = msg.GetMsg();
 	HSFixHeader* pHeader = pMsg->GetHeader();
 	HSFixMsgBody* pBody = pMsg->GetMsgBody();
 
@@ -467,19 +436,9 @@ int Worker::ReplaceOrder(ORDER& order)
 	pBody->SetFieldValue(FIELD::OFMOverride, "N");
 
 	//发送消息  //即时失败也不改回被改订单
-	if(m_pTradeSession)
+	if(0 != SendMessageByID(pMsg, m_pTradeSession))
 	{
-		int iRet = SendMessageByID(pMsg, m_pTradeSession);
-		if(iRet != 0)
-		{
-			AfxMessageBox(_T("Send Fix Message Fail"));
-			return STATUS_FAIL;
-		}
-		DestroyMessage(pMsg);
-	}
-	else
-	{
-		AfxMessageBox(_T("Fix Session not initialized"));
+		AfxMessageBox(_T("Send Fix Message Fail"));
 		return STATUS_FAIL;
 	}
 
@@ -668,7 +627,7 @@ void Worker::CancelReject(const IMessage* pMsg)
 		fprintf(m_pfAuditTrail, "%s,", szSessionID);//7
 		fprintf(m_pfAuditTrail, "%s,", szFirmID);//8
 		fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::ManualOrderIndicator, ""));//9
-		fprintf(m_pfAuditTrail, "%s,", pHeader->GetFieldValueDefault(FIELD::MsgType, ""));//10
+		fprintf(m_pfAuditTrail, "%s/%s,", pHeader->GetFieldValueDefault(FIELD::MsgType, ""), pBody->GetFieldValueDefault(FIELD::CxlRejResponseTo, ""));//10
 		fprintf(m_pfAuditTrail, ",,");//11,12
 		fprintf(m_pfAuditTrail, "%s,", pBody->GetFieldValueDefault(FIELD::ExecID, ""));//13
 		//fprintf(m_pfAuditTrail, "%l,", m_MessageLinkID);//14
@@ -710,7 +669,7 @@ void Worker::CancelReject(const IMessage* pMsg)
 	WriteLog(LOG_INFO, "[Worker::CancelReject]: ClOrdID=%s, Text=%s", order.ClOrdID, pBody->GetFieldValueDefault(FIELD::Text, ""));
 }
 
-int Worker::Quote(ORDER& order)
+int Worker::RequestForQuote(ORDER& order)
 {
 	strcpy(order.MsgType, "R");
 
@@ -1011,14 +970,11 @@ BOOL Worker::GetOrderByClOrderID(const CString csClOrderID, ORDER& order)
 }
 
 
-UINT Worker::startMktDt()
+UINT Worker::startQuote()
 {
 	WriteLog(LOG_INFO, "MDP3.0 Engine Starting, please wait...");
 	//WriteLog(LOG_ERROR, "%s", szConfigPath);
-	if (_access(".\\CME", 0) != 0)
-	{
-		_mkdir(".\\CME");
-	}
+	_mkdir(".\\CME");
 	m_fLog.open(".\\CME\\mfc.log", std::ios::out | std::ios::binary | std::ios::trunc);
 	if (!m_fLog.is_open())
 	{
@@ -1027,28 +983,26 @@ UINT Worker::startMktDt()
 	}
 
 	ConfigStruct configStruct;
-	GetCurrentDirectory(128, configStruct.configFile);
-	GetCurrentDirectory(128, configStruct.templateFile);
-	sprintf(configStruct.configFile, "%s\\config.xml", configStruct.configFile);//"..\\Release\\config.xml";////////////////argv[ 1 ];$(TargetDir)\\config.xml 
-	sprintf(configStruct.templateFile, "%s\\templates_FixBinary.sbeir", configStruct.templateFile);//"..\\Release\\templates_FixBinary.sbeir";////////////////argv[ 2 ];$(TargetDir)\\templates_FixBinary.sbeir
+	char szModulePath[MAX_PATH] = {0};
+	GetModuleFileName(NULL, szModulePath, MAX_PATH);
+	char* pExeDir = strrchr(szModulePath, '\\');
+	*pExeDir = '\0';
+	sprintf(configStruct.configFile, "%s\\Config\\config.xml", szModulePath);//"..\\Release\\config.xml";////////////////argv[ 1 ];$(TargetDir)\\config.xml 
+	sprintf(configStruct.templateFile, "%s\\Config\\templates_FixBinary.sbeir", szModulePath);//"..\\Release\\templates_FixBinary.sbeir";////////////////argv[ 2 ];$(TargetDir)\\templates_FixBinary.sbeir
 	strcpy(configStruct.userName, "CME");
 	strcpy(configStruct.passWord, "CME");
-	strcpy(configStruct.localInterface, "172.17.120.92");//"10.25.1.148";
+	//strcpy(configStruct.localInterface, "172.17.120.92");//"10.25.1.148";
 
 	if ( StartEngine(&configStruct, this) )
 	{
 		WriteLog(LOG_ERROR, "Start MDP3.0 Engine failed! [%s]", configStruct.errorInfo);
 		return -1;
 	}
-
-	//Sleep(1000*500);
-
-	//stop();
 	WriteLog(LOG_INFO, "MDP3.0 Engine Started!");
 	return 0;
 }
 
-UINT Worker::stopMktDt()
+UINT Worker::stopQuote()
 {
 	WriteLog(LOG_INFO, "Engine Stopping, please wait...");
 	if (StopEngine())
@@ -1062,8 +1016,7 @@ UINT Worker::stopMktDt()
 }
 
 
-
-void Worker::OnUpdate(MDPFieldMap* pFieldMap)
+void Worker::OnUpdateContract(MDPFieldMap* pFieldMap)
 {
 	if (pFieldMap == NULL)
 		return;
@@ -1074,25 +1027,28 @@ void Worker::OnUpdate(MDPFieldMap* pFieldMap)
 
 	Instrument inst;
 	memset(&inst, 0, sizeof(inst));
-	if (pField = pFieldMap->getField(FIELD::SecurityID))//CME合约唯一ID,Map Key
+	//更新行情的主键
+	if (pField = pFieldMap->getField(FIELD::SecurityID))
 	{
 		inst.SecurityID = (int)pField->getInt();
 	}
-
+	//收到过为0的错误数据，在此做简单校验
 	if (inst.SecurityID <= 0)
 	{
 		m_fLog << "[OnUpdate]: error security id:" << inst.SecurityID << std::endl;
 		return ;
 	}
 
-	if (pField = pFieldMap->getField(FIELD::Symbol))//CME合约代码 Instrument Name or Symbol
-	{
-		pField->getArray(0, inst.Symbol, 0, pField->length());
-	}
 	char action;//Last Security update action on Incremental feed, 'D' or 'M' is used when a mid-week deletion or modification (i.e. extension) occurs
 	if (pField = pFieldMap->getField(FIELD::SecurityUpdateAction))
 	{
 		action = (char)pField->getUInt();
+	}
+
+	//CME合约代码 Instrument Name or Symbol
+	if (pField = pFieldMap->getField(FIELD::Symbol))
+	{
+		pField->getArray(0, inst.Symbol, 0, pField->length());
 	}
 
 	if (action == 'D')//删除合约
@@ -1107,14 +1063,6 @@ void Worker::OnUpdate(MDPFieldMap* pFieldMap)
 		return;
 	}
 
-	//如果是修改合约，且不在当前的合约列表中，当作新增合约处理
-	if (action == 'M')
-	{
-		m_fLog << "[OnUpdate]:Modify Instrument, Symbol:" << inst.Symbol << std::endl;
-	}
-	/**************************************************新增合约**************************************************/
-	//先获取以下关键字段
-
 	if (pField = pFieldMap->getField(FIELD::SecurityExchange))//外部交易所
 	{
 		pField->getArray(0, inst.SecurityExchange, 0, pField->length());
@@ -1123,6 +1071,12 @@ void Worker::OnUpdate(MDPFieldMap* pFieldMap)
 	if (pField = pFieldMap->getField(FIELD::Asset))//外部商品
 	{
 		pField->getArray(0, inst.Asset, 0, pField->length());
+	}
+
+	//ISO标准工具分类码，用于区分产品类别
+	if (pField = pFieldMap->getField(FIELD::CFICode))
+	{
+		pField->getArray(0, inst.CFICode, 0, pField->length());
 	}
 
 	if (pField = pFieldMap->getField(FIELD::DisplayFactor))//显示价格倍率
@@ -1153,6 +1107,7 @@ void Worker::OnUpdate(MDPFieldMap* pFieldMap)
 		pField->getArray(0, inst.SecurityType, 0, pField->length());
 	}
 
+	//行情深度
 	nCount = pFieldMap->getFieldMapNumInGroup(FIELD::NoMdFeedTypes);
 	inst.GBXMarketDepth = 10;
 	inst.GBIMarketDepth = 2;
@@ -1188,10 +1143,10 @@ void Worker::OnUpdate(MDPFieldMap* pFieldMap)
 		}
 	}
 
-	m_fLog << "[OnUpdate]: SecurityID=" << inst.SecurityID << ", Symbol=" << inst.Symbol << ", SecurityExchange=" << inst.SecurityExchange
-		<< ", Asset=" << inst.Asset << ", SecurityType=" << inst.SecurityType << ", SecurityTradingStatus=" << inst.SecurityTradingStatus << ", Action=" << action << ", " << std::endl;
-	m_mapSecurityID2Inst[inst.SecurityID] = inst;
+	m_fLog << "[OnUpdate]: Symbol=" << inst.Symbol << ", SecurityID=" << inst.SecurityID << ", SecurityExchange=" << inst.SecurityExchange
+		<< ", Asset=" << inst.Asset << ",CFICode=" << inst.CFICode << ", SecurityType=" << inst.SecurityType << ", SecurityTradingStatus=" << inst.SecurityTradingStatus << ", Action=" << action << ", " << std::endl;
 
+	m_mapSecurityID2Inst[inst.SecurityID] = inst;
 }
 
 int Worker::GetInstrumentBySecurityID(const int securityID, Instrument& inst)
@@ -1211,18 +1166,18 @@ void Worker::onMarketData(MDPFieldMap* pMDPFieldMap, const int templateID)
 	{
 	case 4://ChannelReset4
 		m_fLog << "[onMarketData]: Received ChannelReset4" << std::endl;
-		ChannelReset(pMDPFieldMap);
+		UpdateQuoteItem(pMDPFieldMap);
 		break;
 	case 12://AdminHeartbeat12
 		m_fLog << "[onMarketData]: Received AdminHeartbeat12" << std::endl;
 		break;
 	case 27://MDInstrumentDefinitionFuture27
 		m_fLog << "[onMarketData]: Received MDInstrumentDefinitionFuture27" << std::endl;
-		OnUpdate(pMDPFieldMap);
+		OnUpdateContract(pMDPFieldMap);
 		break;
 	case 29://MDInstrumentDefinitionSpread29
 		m_fLog << "[onMarketData]: Received MDInstrumentDefinitionSpread29" << std::endl;
-		OnUpdate(pMDPFieldMap);
+		OnUpdateContract(pMDPFieldMap);
 		break;
 	case 30://SecurityStatus30
 		m_fLog << "[onMarketData]: Received SecurityStatus30" << std::endl;
@@ -1230,30 +1185,30 @@ void Worker::onMarketData(MDPFieldMap* pMDPFieldMap, const int templateID)
 		break;
 	case 41://MDInstrumentDefinitionOption41
 		m_fLog << "[onMarketData]: Received MDInstrumentDefinitionOption41" << std::endl;
-		OnUpdate(pMDPFieldMap);
+		OnUpdateContract(pMDPFieldMap);
 		break;
 	case 32://MDIncrementalRefreshBook32
 		m_fLog << "[onMarketData]: Received MDIncrementalRefreshBook32" << std::endl;
-		UpdateBook(pMDPFieldMap);
+		UpdateQuoteItem(pMDPFieldMap);
 		break;
 	case 33://MDIncrementalRefreshDailyStatistics33
 		m_fLog << "[onMarketData]: Received MDIncrementalRefreshDailyStatistics33" << std::endl;
-		UpdateDailyStatistics(pMDPFieldMap);
+		UpdateQuoteItem(pMDPFieldMap);
 		break;
 	case 34://MDIncrementalRefreshLimitsBanding34
 		m_fLog << "[onMarketData]: Received MDIncrementalRefreshLimitsBanding34" << std::endl;
 		break;
 	case 35://MDIncrementalRefreshSessionStatistics35
 		m_fLog << "[onMarketData]: Received MDIncrementalRefreshSessionStatistics35" << std::endl;
-		UpdateSessionStatistics(pMDPFieldMap);
+		UpdateQuoteItem(pMDPFieldMap);
 		break;
 	case 36://MDIncrementalRefreshTrade36
 		m_fLog << "[onMarketData]: Received MDIncrementalRefreshTrade36" << std::endl;
-		UpdateTradeSummary(pMDPFieldMap);
+		UpdateQuoteItem(pMDPFieldMap);
 		break;
 	case 37://MDIncrementalRefreshVolume37
 		m_fLog << "[onMarketData]: Received MDIncrementalRefreshVolume37" << std::endl;
-		UpdateVolume(pMDPFieldMap);
+		UpdateQuoteItem(pMDPFieldMap);
 		break;
 	case 38://SnapshotFullRefresh38
 		m_fLog << "[onMarketData]: Received SnapshotFullRefresh38" << std::endl;
@@ -1264,7 +1219,7 @@ void Worker::onMarketData(MDPFieldMap* pMDPFieldMap, const int templateID)
 		break;
 	case 42://MDIncrementalRefreshTradeSummary42
 		m_fLog << "[onMarketData]: Received MDIncrementalRefreshTradeSummary42" << std::endl;
-		UpdateTradeSummary(pMDPFieldMap);
+		UpdateQuoteItem(pMDPFieldMap);
 		break;
 	default:
 		m_fLog << "[onMarketData]: Received Unknown Message ID:" << templateID << std::endl;
@@ -1272,22 +1227,16 @@ void Worker::onMarketData(MDPFieldMap* pMDPFieldMap, const int templateID)
 	}
 }
 
-
-
 void Worker::SnapShot(MDPFieldMap* pFieldMap)
 {
 	if (pFieldMap == NULL)
-	{
-		//WriteLog(LOG_INFO, "[SnapShot]:pFieldMap is null\n");
 		return ;
-	}
 
 	MDPField* pField = NULL;
 	MDPFieldMap* pFieldMapInGroup = NULL;
 	int nSecurityID = 0;
 	int nCount = 0;
-	//Instrument* pInst = NULL;
-	MktDtItem* pItem = NULL;
+	QuoteItem* pItem = NULL;
 
 	//合约唯一ID, 检查是否处理
 	if (pField = pFieldMap->getField(FIELD::SecurityID))
@@ -1315,24 +1264,31 @@ void Worker::SnapShot(MDPFieldMap* pFieldMap)
 		m_mapApplID2SecurityIDs[inst.ApplID] = securityIDs;
 	}
 
-	MapIntToMktDtItemPtr::const_iterator iter = m_mapSecurityIDToMktDt.find(nSecurityID);
-	if(iter != m_mapSecurityIDToMktDt.end())
+	MapIntToQuoteItemPtr::const_iterator iter = m_mapSecurityID2Quote.find(nSecurityID);
+	if(iter != m_mapSecurityID2Quote.end())
 	{
 		pItem = iter->second;
 	}
 	else
 	{
-		pItem = new MktDtItem;
-		memset(pItem, 0, sizeof(MktDtItem));
-		m_mapSecurityIDToMktDt[nSecurityID] = pItem;
+		pItem = new QuoteItem;
+		memset(pItem, 0, sizeof(QuoteItem));
+		m_mapSecurityID2Quote[nSecurityID] = pItem;
 		pItem->securityID = nSecurityID;
-		// 		strcpy(qi->szExchangeType, pInst->szExchangeType);
-		// 		strcpy(qi->szCommodityType, pInst->szCommodityType);
-		// 		strcpy(qi->szContractCode, pInst->szContractCode);
-		// 		qi->cProductType = pInst->cProductType;
-		// 		qi->cOptionsType = pInst->cOptionsType;
-		// 		qi->fStrikePrice = pInst->fStrikePrice;
-		// 		qi->cMarketStatus = pInst->cMarketStatus;
+		pItem->RptSeq = 1;
+		// strcpy(qi->szExchangeType, pInst->szExchangeType);
+		// strcpy(qi->szCommodityType, pInst->szCommodityType);
+		// strcpy(qi->szContractCode, pInst->szContractCode);
+		// qi->cProductType = pInst->cProductType;
+		// qi->cOptionsType = pInst->cOptionsType;
+		// qi->fStrikePrice = pInst->fStrikePrice;
+		// qi->cMarketStatus = pInst->cMarketStatus;
+	}
+
+	//快照中直接设置，实时行情中则作为更新依据
+	if (pField = pFieldMap->getField(FIELD::RptSeq))
+	{
+		pItem->RptSeq = (unsigned int)pField->getUInt() + 1;
 	}
 
 	//TODO:合约状态
@@ -1381,11 +1337,10 @@ void Worker::SnapShot(MDPFieldMap* pFieldMap)
 	//时间戳
 	if (pField = pFieldMap->getField(FIELD::TransactTime))
 	{
-		struct tm * timeinfo;
 		unsigned __int64 temp = pField->getUInt() / 1000000;
 		int mSec = temp % 1000;
 		time_t rawtime = temp / 1000;
-		timeinfo = localtime(&rawtime);
+		struct tm * timeinfo = localtime(&rawtime);
 		pItem->nTimeStamp = timeinfo->tm_hour * 10000000 + timeinfo->tm_min * 100000 + timeinfo->tm_sec * 1000 + mSec;
 	}
 
@@ -1441,16 +1396,16 @@ void Worker::SnapShot(MDPFieldMap* pFieldMap)
 			case '4':// Opening Price
 				if (pField = pFieldMapInGroup->getField(FIELD::OpenCloseSettlFlag))
 				{
-					int nOpenCloseSettlFlag = (int)pField->getUInt();
-					if (nOpenCloseSettlFlag == 0)//Daily Open Price
+					//int nOpenCloseSettlFlag = (int)pField->getUInt();
+					//if (nOpenCloseSettlFlag == 0)//Daily Open Price
 						pItem->open = dMDEntryPx;
 				}
 				break;
 			case '6':// Settlement Price
 				if (pField = pFieldMapInGroup->getField(FIELD::SettlPriceType))
 				{
-					int uSettlPriceType = (int)pField->getUInt();
-					if (uSettlPriceType == 3)
+					//int uSettlPriceType = (int)pField->getUInt();
+					//if (uSettlPriceType == 3)
 						pItem->prevSettlementPrice = dMDEntryPx;
 				}
 				break;
@@ -1480,81 +1435,66 @@ void Worker::SnapShot(MDPFieldMap* pFieldMap)
 		}
 	}
 
-	//WriteLog(LOG_INFO, "[SnapShot]:push quote security ID:%d", qi->securityID);
-	m_fLog << "[SnapShot]:push quote security ID:" << pItem->securityID << std::endl;
+	m_fLog << "[Worker::SnapShot]: SecurityID=" << pItem->securityID << ", RptSeq=" << pItem->RptSeq << ", Last=" << pItem->last << ", Open=" << pItem->open << std::endl;
 	PushMktDtItem(pItem);
 }
 
-void Worker::UpdateBook(MDPFieldMap* pFieldMap)
+void Worker::UpdateQuoteItem(MDPFieldMap* pFieldMap)
 {
 	if (pFieldMap == NULL)
-	{
-		//WriteLog(LOG_INFO, "[UpdateBook]:pFieldMap is null\n");
 		return ;
-	}
+
 	MDPField* pField = NULL;
 	MDPFieldMap* pFieldMapInGroup = NULL;
-	unsigned char uMatchEventIndicator = 0;
-	int nTimeStamp = 0;
-	if (pField = pFieldMap->getField(FIELD::MatchEventIndicator))
-	{
-		uMatchEventIndicator = (unsigned char)pField->getUInt();
-	}
 
 	//时间戳
+	int nTimeStamp = 0;
 	if (pField = pFieldMap->getField(FIELD::TransactTime))
 	{
-		struct tm * timeinfo;
 		unsigned __int64 temp = pField->getUInt() / 1000000;
 		int mSec = temp % 1000;
 		time_t rawtime = temp / 1000;
-		timeinfo = localtime(&rawtime);
+		struct tm *timeinfo = localtime(&rawtime);
 		nTimeStamp = timeinfo->tm_hour * 10000000 + timeinfo->tm_min * 100000 + timeinfo->tm_sec * 1000 + mSec;
 	}
 
 	int nCount = pFieldMap->getFieldMapNumInGroup(FIELD::NoMDEntries);
-
 	for (int j = 0; j < nCount; ++j)
 	{
-		//获取第i条消息
+		//获取第i条
 		if (pFieldMapInGroup = pFieldMap->getFieldMapPtrInGroup(FIELD::NoMDEntries, j))
 		{
-			//Instrument* pInst = NULL;
-			MktDtItem* qi = NULL;
-			int nSecurityID = 0;
-			int nMDUpdateAction = 0;
-			char cMDEntryType = 0;
-			double dMDEntryPx = 0;
-			int nQty = 0;
-			int nLevel = 0;
-
 			//合约唯一ID, 外部主键
+			int nSecurityID = 0;
 			if (pField = pFieldMapInGroup->getField(FIELD::SecurityID))
 			{
 				nSecurityID = (int)pField->getInt();
 			}
 
-			m_fLog << "[UpdateBook]: SecurityID:" << nSecurityID << " ";
+			m_fLog << "[Worker::UpdateQuoteItem]: SecurityID:" << nSecurityID << std::endl;
 			Instrument inst;
 			//是否在合约列表中
 			if (GetInstrumentBySecurityID(nSecurityID, inst))
 			{
-				m_fLog <<  "GetInstrumentBySecurityID failed\n";
+				m_fLog <<  "[Worker::UpdateQuoteItem]: GetInstrumentBySecurityID failed." << std::endl;
 				continue;
 			}
 
 			//合约行情获取(创建)
-			MapIntToMktDtItemPtr::const_iterator iter = m_mapSecurityIDToMktDt.find(nSecurityID);
-			if(iter != m_mapSecurityIDToMktDt.end())
+			QuoteItem* qi = NULL;
+			MapIntToQuoteItemPtr::const_iterator iter = m_mapSecurityID2Quote.find(nSecurityID);
+			if(iter != m_mapSecurityID2Quote.end())
 			{
 				qi = iter->second;
 			}
 			else
 			{
-				m_fLog << "Can't find the existing QuoteItem, newing one" << std::endl;
-				qi = new MktDtItem;
-				memset(qi, 0, sizeof(MktDtItem));
-				m_mapSecurityIDToMktDt[nSecurityID] = qi;
+				m_fLog << "[Worker::UpdateQuoteItem]: Can't find the existing QuoteItem, create one." << std::endl;
+				qi = new QuoteItem;
+				memset(qi, 0, sizeof(QuoteItem));
+				m_mapSecurityID2Quote[nSecurityID] = qi;
+				qi->securityID = nSecurityID;
+				qi->RptSeq = 1;
 				//strcpy(qi->szExchangeType, pInst->szExchangeType);
 				//strcpy(qi->szCommodityType, pInst->szCommodityType);
 				//strcpy(qi->szContractCode, pInst->szContractCode);
@@ -1564,28 +1504,85 @@ void Worker::UpdateBook(MDPFieldMap* pFieldMap)
 				//qi->cMarketStatus = pInst->cMarketStatus;
 			}
 
+			//按Instrument level更新行情
+			unsigned int RptSeq = 0;
+			if (pField = pFieldMapInGroup->getField(FIELD::RptSeq))
+			{
+				RptSeq = (unsigned int)pField->getUInt();
+				if (RptSeq != qi->RptSeq)
+				{
+					m_fLog << "[Worker::UpdateQuoteItem]: security id :" << qi->securityID << " RptSeq need " << qi->RptSeq << " receive " << RptSeq << std::endl;
+					continue;
+				}
+				else
+				{
+					++qi->RptSeq;
+				}
+			}
+			else
+			{
+				m_fLog << "[Worker::UpdateQuoteItem]: field RptSeq lost" << std::endl;
+			}
+			
+			/*条目类型
+			0 = Bid
+			1 = Offer
+			E = Implied Bid
+			F = Implied Offer
+			2 = Trade Summary
+			4 = Opening Price
+			6 = Settlement Price
+			7 = Trading Session High Price
+			8 = Trading Session Low Price
+			N = Session High Bid
+			O = Session Low Offer
+			B = Trade Volume
+			C = Open Interest
+			W = Fixing Price
+			J = Empty Book
+			e = Electronic Volume
+			g =Threshold Limits and Price Band Variation
+			*/
+			char cMDEntryType = 0;
 			if (pField = pFieldMapInGroup->getField(FIELD::MDEntryType))
 			{
 				cMDEntryType = (char)pField->getUInt();
 			}
+
+			/*更新动作
+			0 = New
+			1 = Change
+			2 = Delete
+			3 = Delete Thru
+			4 = Delete From
+			5 = Overlay
+			*/
+			int nMDUpdateAction = 0;
 			if (pField = pFieldMapInGroup->getField(FIELD::MDUpdateAction))
 			{
 				nMDUpdateAction = (int)pField->getUInt();
 			}
+			/*行情深度
+			Aggregate book level, any number from 1 to 10.
+			*/
+			int nLevel = 0;
 			if (pField = pFieldMapInGroup->getField(FIELD::MDPriceLevel))
 			{
 				nLevel = (int)pField->getUInt();
 			}
-			if (nLevel < 1 || nLevel >10 )
+			if (nLevel < 1 || nLevel >10 )//错误的数值会引起其它问题
 			{
 				m_fLog << "Invalid nLevel: " << nLevel << std::endl;
 				continue;
 			}
-
+			//价格
+			double dMDEntryPx = 0;
 			if (pField = pFieldMapInGroup->getField(FIELD::MDEntryPx))
 			{
 				dMDEntryPx = (double)(pField->getInt() * pow(10.0, (int)pField->getInt(1)));// pow(10.0, -7) * pInst->DisplayFactor * pInst->convBase;
 			}
+			//数量
+			int nQty = 0;
 			if (pField = pFieldMapInGroup->getField(FIELD::MDEntrySize))
 			{
 				nQty = (int)pField->getInt();
@@ -1701,104 +1698,21 @@ void Worker::UpdateBook(MDPFieldMap* pFieldMap)
 					LevelDelete(qi->impliedAskVol, nLevel-1, inst.GBIMarketDepth);
 				}
 				break;
-			default:
+			case '6':// SettlementPrice
+				if (pField = pFieldMapInGroup->getField(FIELD::SettlPriceType))
+				{
+					int uSettlPriceType = (int)pField->getUInt();
+					if (uSettlPriceType == 3)
+						qi->prevSettlementPrice = dMDEntryPx;
+				}
 				break;
-			}
-			qi->nTimeStamp = nTimeStamp;
-			//if (uMatchEventIndicator & 0x80)//Last message for the event
-			//{
-			m_fLog << "nLevel: " << nLevel << std::endl;
-			PushMktDtItem(qi);
-			//}	
-		}
-	}
-}
-
-void Worker::UpdateSessionStatistics(MDPFieldMap* pFieldMap)
-{
-	if (pFieldMap == NULL)
-	{
-		//WriteLog(LOG_INFO, "[QuoteManger::UpdateSessionStatistics]:pFieldMap is null\n");
-		return ;
-	}
-	MDPField* pField = NULL;
-	MDPFieldMap* pFieldMapInGroup = NULL;
-	unsigned char uMatchEventIndicator = 0;
-	int nTimeStamp = 0;
-	if (pField = pFieldMap->getField(FIELD::MatchEventIndicator))
-	{
-		uMatchEventIndicator = (unsigned char)pField->getUInt();
-	}
-	//时间戳
-	if (pField = pFieldMap->getField(FIELD::TransactTime))
-	{
-		struct tm * timeinfo;
-		unsigned __int64 temp = pField->getUInt() / 1000000;
-		int mSec = temp % 1000;
-		time_t rawtime = temp / 1000;
-		timeinfo = localtime(&rawtime);
-		nTimeStamp = timeinfo->tm_hour * 10000000 + timeinfo->tm_min * 100000 + timeinfo->tm_sec * 1000 + mSec;
-	}
-	int nCount = pFieldMap->getFieldMapNumInGroup(FIELD::NoMDEntries);
-
-	for (int j = 0; j < nCount; ++j)
-	{
-		//获取第i条消息
-		if (pFieldMapInGroup = pFieldMap->getFieldMapPtrInGroup(FIELD::NoMDEntries, j))
-		{
-			//Instrument* pInst = NULL;
-			MktDtItem* qi = NULL;
-			int nSecurityID = 0;
-			int nMDUpdateAction = 0;
-			char cMDEntryType = 0;
-			double dMDEntryPx = 0;
-			int nQty = 0;
-			int nLevel = 0;
-
-			//合约唯一ID, 外部主键
-			if (pField = pFieldMapInGroup->getField(FIELD::SecurityID))
-			{
-				nSecurityID = (int)pField->getInt();
-			}
-			//是否在合约列表中
-			// 		if (m_pdtMgr->GetInstrumentBySecurityID(nSecurityID, pInst))
-			// 		{
-			// 			continue;
-			// 		}
-			//合约行情获取(创建)
-			MapIntToMktDtItemPtr::const_iterator iter = m_mapSecurityIDToMktDt.find(nSecurityID);
-			if(iter != m_mapSecurityIDToMktDt.end())
-			{
-				qi = iter->second;
-			}
-			else
-			{
-				qi = new MktDtItem;
-				memset(qi, 0, sizeof(MktDtItem));
-				m_mapSecurityIDToMktDt[nSecurityID] = qi;
-				// 			strcpy(qi->szExchangeType, pInst->szExchangeType);
-				// 			strcpy(qi->szCommodityType, pInst->szCommodityType);
-				// 			strcpy(qi->szContractCode, pInst->szContractCode);
-				// 			qi->cProductType = pInst->cProductType;
-				// 			qi->cOptionsType = pInst->cOptionsType;
-				// 			qi->fStrikePrice = pInst->fStrikePrice;
-				// 			qi->cMarketStatus = pInst->cMarketStatus;
-			}
-
-			if (pField = pFieldMapInGroup->getField(FIELD::MDEntryType))
-			{
-				cMDEntryType = (char)pField->getUInt();
-			}
-			if (pField = pFieldMapInGroup->getField(FIELD::MDUpdateAction))
-			{
-				nMDUpdateAction = (int)pField->getUInt();
-			}
-			if (pField = pFieldMapInGroup->getField(FIELD::MDEntryPx))
-			{
-				dMDEntryPx = (double)(pField->getInt() * pow(10.0, (int)pField->getInt(1)));// * pow(10.0, -7) * pInst->DisplayFactor * pInst->convBase;
-			}
-			switch (cMDEntryType)
-			{
+			case 'B':// ClearedVolume
+				break;
+			case 'C':// OpenInterest
+				qi->bearVolume = nQty;
+				break;
+			case 'W':// FixingPrice
+				break;
 			case '4':// Open Price
 				if (pField = pFieldMapInGroup->getField(FIELD::OpenCloseSettlFlag))
 				{
@@ -1817,333 +1731,53 @@ void Worker::UpdateSessionStatistics(MDPFieldMap* pFieldMap)
 				break;
 			case 'O':// Lowest Offer
 				break;
-			default:
+			case '2':// Trade Summary
+				//if ( nMDUpdateAction == 0 )
+				//{
+					//qi->last = dMDEntryPx;
+					//qi->lastVolume = nQty;
+				//}
 				break;
-			}
-			qi->nTimeStamp = nTimeStamp;
-			//if (uMatchEventIndicator & 0x80)
-			//{
-			PushMktDtItem(qi);
-			//}
-		}
-	}
-}
-
-void Worker::UpdateDailyStatistics(MDPFieldMap* pFieldMap)
-{
-	if (pFieldMap == NULL)
-	{
-		//WriteLog(LOG_INFO, "[UpdateDailyStatistics]:pFieldMap is null\n");
-		return ;
-	}
-	MDPField* pField = NULL;
-	MDPFieldMap* pFieldMapInGroup = NULL;
-	unsigned char uMatchEventIndicator = 0;
-	int nTimeStamp = 0;
-	if (pField = pFieldMap->getField(FIELD::MatchEventIndicator))
-	{
-		uMatchEventIndicator = (unsigned char)pField->getUInt();
-	}
-
-	//时间戳
-	if (pField = pFieldMap->getField(FIELD::TransactTime))
-	{
-		struct tm * timeinfo;
-		unsigned __int64 temp = pField->getUInt() / 1000000;
-		int mSec = temp % 1000;
-		time_t rawtime = temp / 1000;
-		timeinfo = localtime(&rawtime);
-		nTimeStamp = timeinfo->tm_hour * 10000000 + timeinfo->tm_min * 100000 + timeinfo->tm_sec * 1000 + mSec;
-	}
-	int nCount = pFieldMap->getFieldMapNumInGroup(FIELD::NoMDEntries);
-
-	for (int j = 0; j < nCount; ++j)
-	{
-		//获取第i条消息
-		if (pFieldMapInGroup = pFieldMap->getFieldMapPtrInGroup(FIELD::NoMDEntries, j))
-		{
-			//Instrument* pInst = NULL;
-			MktDtItem* qi = NULL;
-			int nSecurityID = 0;
-			int nMDUpdateAction = 0;
-			char cMDEntryType = 0;
-			double dMDEntryPx = 0;
-			int nQty = 0;
-			int nLevel = 0;
-
-			//合约唯一ID, 外部主键
-			if (pField = pFieldMapInGroup->getField(FIELD::SecurityID))
-			{
-				nSecurityID = (int)pField->getInt();
-			}
-
-			//是否在合约列表中
-
-			//合约行情获取(创建)
-			MapIntToMktDtItemPtr::const_iterator iter = m_mapSecurityIDToMktDt.find(nSecurityID);
-			if(iter != m_mapSecurityIDToMktDt.end())
-			{
-				qi = iter->second;
-			}
-			else
-			{
-				qi = new MktDtItem;
-				memset(qi, 0, sizeof(MktDtItem));
-				m_mapSecurityIDToMktDt[nSecurityID] = qi;
-				//strcpy(qi->szExchangeType, pInst->szExchangeType);
-				//strcpy(qi->szCommodityType, pInst->szCommodityType);
-				//strcpy(qi->szContractCode, pInst->szContractCode);
-				//qi->cProductType = pInst->cProductType;
-				//qi->cOptionsType = pInst->cOptionsType;
-				//qi->fStrikePrice = pInst->fStrikePrice;
-				//qi->cMarketStatus = pInst->cMarketStatus;
-			}
-
-			if (pField = pFieldMapInGroup->getField(FIELD::MDEntryType))
-			{
-				cMDEntryType = (char)pField->getUInt();
-			}
-			if (pField = pFieldMapInGroup->getField(FIELD::MDUpdateAction))
-			{
-				nMDUpdateAction = (int)pField->getUInt();
-			}
-			if (pField = pFieldMapInGroup->getField(FIELD::MDEntryPx))
-			{
-				dMDEntryPx = (double)(pField->getInt() * pow(10.0, (int)pField->getInt(1)));// * pow(10.0, -7) * pInst->DisplayFactor * pInst->convBase;
-			}
-			if (pField = pFieldMapInGroup->getField(FIELD::MDEntrySize))
-			{
-				nQty = (int)pField->getInt();
-			}
-			switch (cMDEntryType)
-			{
-			case '6':// SettlementPrice
-				if (pField = pFieldMapInGroup->getField(FIELD::SettlPriceType))
+			case 'e'://Electronic Volume
+				qi->tolVolume = nQty;
+				break;
+			case 'J'://Empty Book
 				{
-					int uSettlPriceType = (int)pField->getUInt();
-					if (uSettlPriceType == 3)
-						qi->prevSettlementPrice = dMDEntryPx;
+					int nApplID = 0;
+					if (pField = pFieldMapInGroup->getField(FIELD::ApplID))
+					{
+						nApplID = (int)pField->getInt();
+					}
+					MapIntToSetInt::iterator itMap = m_mapApplID2SecurityIDs.find(nApplID);
+					if (itMap != m_mapApplID2SecurityIDs.end())
+					{
+						SetInt::iterator itSet = itMap->second.begin();
+						while (itSet != itMap->second.end())
+						{
+							//Empty Book
+							MapIntToQuoteItemPtr::iterator it = m_mapSecurityID2Quote.find(*itSet);
+							if (it != m_mapSecurityID2Quote.end())
+							{
+								QuoteItem* qi = it->second;
+								EmptyMktDtItem(qi);
+								qi->nTimeStamp = nTimeStamp;
+								PushMktDtItem(qi);
+							}
+							itSet++;
+						}
+					}
 				}
-				break;
-			case 'B':// ClearedVolume
-				break;
-			case 'C':// OpenInterest
-				qi->bearVolume = nQty;
-				break;
-			case 'W':// FixingPrice
-				break;
+				return;
 			default:
 				break;
 			}
 			qi->nTimeStamp = nTimeStamp;
-			//if (uMatchEventIndicator & 0x80)
-			//{
+			m_fLog << "nLevel: " << nLevel << std::endl;
 			PushMktDtItem(qi);
-			//}
 		}
 	}
 }
 
-void Worker::UpdateVolume(MDPFieldMap* pFieldMap)
-{
-	if (pFieldMap == NULL)
-	{
-		//WriteLog(LOG_INFO, "[UpdateVolume]:pFieldMap is null\n");
-		return ;
-	}
-	MDPField* pField = NULL;
-	MDPFieldMap* pFieldMapInGroup = NULL;
-	unsigned char uMatchEventIndicator = 0;
-	int nTimeStamp = 0;
-	if (pField = pFieldMap->getField(FIELD::MatchEventIndicator))
-	{
-		uMatchEventIndicator = (unsigned char)pField->getUInt();
-	}
-	//时间戳
-	if (pField = pFieldMap->getField(FIELD::TransactTime))
-	{
-		struct tm * timeinfo;
-		unsigned __int64 temp = pField->getUInt() / 1000000;
-		int mSec = temp % 1000;
-		time_t rawtime = temp / 1000;
-		timeinfo = localtime(&rawtime);
-		nTimeStamp = timeinfo->tm_hour * 10000000 + timeinfo->tm_min * 100000 + timeinfo->tm_sec * 1000 + mSec;
-	}
-	int nCount = pFieldMap->getFieldMapNumInGroup(FIELD::NoMDEntries);
-
-	for (int j = 0; j < nCount; ++j)
-	{
-		//获取第i条消息
-		if (pFieldMapInGroup = pFieldMap->getFieldMapPtrInGroup(FIELD::NoMDEntries, j))
-		{
-			//Instrument* pInst = NULL;
-			MktDtItem* pItem = NULL;
-			int nSecurityID = 0;
-			int nMDUpdateAction = 0;
-			char cMDEntryType = 0;
-			int nQty = 0;
-
-			//合约唯一ID, 外部主键
-			if (pField = pFieldMapInGroup->getField(FIELD::SecurityID))
-			{
-				nSecurityID = (int)pField->getInt();
-			}
-
-			//是否在合约列表中
-			// if (m_pdtMgr->GetInstrumentBySecurityID(nSecurityID, pInst))
-			// {
-			// 	continue;
-			// }
-
-			//合约行情获取(创建)
-			MapIntToMktDtItemPtr::const_iterator iter = m_mapSecurityIDToMktDt.find(nSecurityID);
-			if(iter != m_mapSecurityIDToMktDt.end())
-			{
-				pItem = iter->second;
-			}
-			else
-			{
-				pItem = new MktDtItem;
-				memset(pItem, 0, sizeof(MktDtItem));
-				m_mapSecurityIDToMktDt[nSecurityID] = pItem;
-				//strcpy(qi->szExchangeType, pInst->szExchangeType);
-				//strcpy(qi->szCommodityType, pInst->szCommodityType);
-				//strcpy(qi->szContractCode, pInst->szContractCode);
-				//qi->cProductType = pInst->cProductType;
-				//qi->cOptionsType = pInst->cOptionsType;
-				//qi->fStrikePrice = pInst->fStrikePrice;
-				//qi->cMarketStatus = pInst->cMarketStatus;
-			}
-
-			if (pField = pFieldMapInGroup->getField(FIELD::MDEntryType))
-			{
-				cMDEntryType = (char)pField->getUInt();
-			}
-			if (pField = pFieldMapInGroup->getField(FIELD::MDUpdateAction))
-			{
-				nMDUpdateAction = (int)pField->getUInt();
-			}
-			if (pField = pFieldMapInGroup->getField(FIELD::MDEntrySize))
-			{
-				nQty = (int)pField->getInt();
-			}
-
-			if (cMDEntryType = 'e')
-			{
-				pItem->tolVolume = nQty;
-			}
-
-			//if (uMatchEventIndicator & 0x80)
-			//{
-			PushMktDtItem(pItem);
-			//}
-		}
-	}
-}
-
-void Worker::UpdateTradeSummary(MDPFieldMap* pFieldMap)
-{
-	if (pFieldMap == NULL)
-	{
-		//WriteLog(LOG_INFO, "[UpdateTradeSummary]:pFieldMap is null\n");
-		return ;
-	}
-	MDPField* pField = NULL;
-	MDPFieldMap* pFieldMapInGroup = NULL;
-	unsigned char uMatchEventIndicator = 0;
-	int nTimeStamp = 0;
-	if (pField = pFieldMap->getField(FIELD::MatchEventIndicator))
-	{
-		uMatchEventIndicator = (unsigned char)pField->getUInt();
-	}
-
-	//时间戳
-	if (pField = pFieldMap->getField(FIELD::TransactTime))
-	{
-		struct tm * timeinfo;
-		unsigned __int64 temp = pField->getUInt() / 1000000;
-		int mSec = temp % 1000;
-		time_t rawtime = temp / 1000;
-		timeinfo = localtime(&rawtime);
-		nTimeStamp = timeinfo->tm_hour * 10000000 + timeinfo->tm_min * 100000 + timeinfo->tm_sec * 1000 + mSec;
-	}
-
-	int nCount = pFieldMap->getFieldMapNumInGroup(FIELD::NoMDEntries);
-
-	for (int j = 0; j < nCount; ++j)
-	{
-		//获取第i条消息
-		if (pFieldMapInGroup = pFieldMap->getFieldMapPtrInGroup(FIELD::NoMDEntries, j))
-		{
-			//Instrument* pInst = NULL;
-			MktDtItem* qi = NULL;
-			int nSecurityID = 0;
-			int nMDUpdateAction = 0;
-			char cMDEntryType = 0;
-			double dMDEntryPx = 0;
-			int nQty = 0;
-
-
-			//合约唯一ID, 外部主键
-			if (pField = pFieldMapInGroup->getField(FIELD::SecurityID))
-			{
-				nSecurityID = (int)pField->getInt();
-			}
-			//是否在合约列表中
-			// 		if (m_pdtMgr->GetInstrumentBySecurityID(nSecurityID, pInst))
-			// 		{
-			// 			continue;
-			// 		}
-			//合约行情获取(创建)
-			MapIntToMktDtItemPtr::const_iterator iter = m_mapSecurityIDToMktDt.find(nSecurityID);
-			if(iter != m_mapSecurityIDToMktDt.end())
-			{
-				qi = iter->second;
-			}
-			else
-			{
-				qi = new MktDtItem;
-				memset(qi, 0, sizeof(MktDtItem));
-				m_mapSecurityIDToMktDt[nSecurityID] = qi;
-				// 			strcpy(qi->szExchangeType, pInst->szExchangeType);
-				// 			strcpy(qi->szCommodityType, pInst->szCommodityType);
-				// 			strcpy(qi->szContractCode, pInst->szContractCode);
-				// 			qi->cProductType = pInst->cProductType;
-				// 			qi->cOptionsType = pInst->cOptionsType;
-				// 			qi->fStrikePrice = pInst->fStrikePrice;
-				// 			qi->cMarketStatus = pInst->cMarketStatus;
-			}
-			if (pField = pFieldMapInGroup->getField(FIELD::MDEntryType))
-			{
-				cMDEntryType = (char )pField->getUInt();
-			}
-			if (pField = pFieldMapInGroup->getField(FIELD::MDUpdateAction))
-			{
-				nMDUpdateAction = (int )pField->getUInt();
-			}
-			if (pField = pFieldMapInGroup->getField(FIELD::MDEntrySize))
-			{
-				nQty = (int )pField->getInt();
-			}
-			if (pField = pFieldMapInGroup->getField(FIELD::MDEntryPx))
-			{
-				dMDEntryPx = (double)(pField->getInt() * pow(10.0, (int)pField->getInt(1)));// * pow(10.0, -7) * pInst->DisplayFactor * pInst->convBase;
-			}
-
-			if (cMDEntryType == '2' && nMDUpdateAction == 0 )
-			{
-				qi->last = dMDEntryPx;
-				qi->lastVolume = nQty;
-			}
-			qi->nTimeStamp = nTimeStamp;
-
-			//if (uMatchEventIndicator & 0x80)
-			//{
-			PushMktDtItem(qi);
-			//}
-		}
-	}
-}
 
 void Worker::SecurityStatus(MDPFieldMap* pFieldMap)
 {
@@ -2156,7 +1790,7 @@ void Worker::SecurityStatus(MDPFieldMap* pFieldMap)
 	MDPFieldMap* pFieldMapInGroup = NULL;
 	unsigned char uMatchEventIndicator = 0;	
 	//Instrument* pInst = NULL;
-	MktDtItem* qi = NULL;
+	QuoteItem* qi = NULL;
 	int nSecurityID = 0;
 	//If this tag is present, 35=f message is sent for the instrument
 	if (pField = pFieldMap->getField(FIELD::SecurityID))
@@ -2165,6 +1799,12 @@ void Worker::SecurityStatus(MDPFieldMap* pFieldMap)
 	}
 	else//暂时只处理合约状态
 	{
+		char szSecurityGroup[8];
+		if (pField = pFieldMap->getField(FIELD::SecurityGroup))
+		{
+			pField->getArray(0, szSecurityGroup, 0, pField->length(0));
+		}
+		m_fLog << "[Worker::SecurityStatus]: Update status of SecurityGroup=" << szSecurityGroup << std::endl;
 		return ;
 	}
 	//是否在合约列表中
@@ -2173,16 +1813,16 @@ void Worker::SecurityStatus(MDPFieldMap* pFieldMap)
 	// 		return ;
 	// 	}
 	//合约行情获取(创建)
-	MapIntToMktDtItemPtr::const_iterator iter = m_mapSecurityIDToMktDt.find(nSecurityID);
-	if(iter != m_mapSecurityIDToMktDt.end())
+	MapIntToQuoteItemPtr::const_iterator iter = m_mapSecurityID2Quote.find(nSecurityID);
+	if(iter != m_mapSecurityID2Quote.end())
 	{
 		qi = iter->second;
 	}
 	else
 	{
-		qi = new MktDtItem;
-		memset(qi, 0, sizeof(MktDtItem));
-		m_mapSecurityIDToMktDt[nSecurityID] = qi;
+		qi = new QuoteItem;
+		memset(qi, 0, sizeof(QuoteItem));
+		m_mapSecurityID2Quote[nSecurityID] = qi;
 		// 		strcpy(qi->szExchangeType, pInst->szExchangeType);
 		// 		strcpy(qi->szCommodityType, pInst->szCommodityType);
 		// 		strcpy(qi->szContractCode, pInst->szContractCode);
@@ -2244,98 +1884,16 @@ void Worker::SecurityStatus(MDPFieldMap* pFieldMap)
 		qi->nTimeStamp = timeinfo->tm_hour * 10000000 + timeinfo->tm_min * 100000 + timeinfo->tm_sec * 1000 + mSec;
 	}
 
-	if (pField = pFieldMap->getField(FIELD::MatchEventIndicator))
-	{
-		uMatchEventIndicator = (unsigned char)pField->getUInt();
-	}
+	m_fLog << "[Worker::SecurityStatus]: Update SecurityID=" << qi->securityID << ", MDSecurityTradingStatus=" << qi->cMarketStatus << std::endl;
 
-	//if (uMatchEventIndicator & 0x80)
-	//{
 	PushMktDtItem(qi);
-	//}
 }
 
-void Worker::ChannelReset(MDPFieldMap* pFieldMap)
-{
-	if (pFieldMap == NULL)
-	{
-		//WriteLog(LOG_INFO, "[ChannelReset]:pFieldMap is null\n");
-		return ;
-	}
-	MDPField* pField = NULL;
-	MDPFieldMap* pFieldMapInGroup = NULL;
-	unsigned char uMatchEventIndicator = 0;
-	int nTimeStamp = 0;
-	if (pField = pFieldMap->getField(FIELD::MatchEventIndicator))
-	{
-		uMatchEventIndicator = (unsigned char)pField->getUInt();
-	}
-	//时间戳
-	if (pField = pFieldMap->getField(FIELD::TransactTime))
-	{
-		struct tm * timeinfo;
-		unsigned __int64 temp = pField->getUInt() / 1000000;
-		int mSec = temp % 1000;
-		time_t rawtime = temp / 1000;
-		timeinfo = localtime(&rawtime);
-		nTimeStamp = timeinfo->tm_hour * 10000000 + timeinfo->tm_min * 100000 + timeinfo->tm_sec * 1000 + mSec;
-	}
-	int nSecurityID = 0;
-	int nCount = pFieldMap->getFieldMapNumInGroup(FIELD::NoMDEntries);
-
-	for (int i = 0; i < nCount; ++i)
-	{
-		if (pFieldMapInGroup = pFieldMap->getFieldMapPtrInGroup(FIELD::NoMDEntries, i))
-		{
-
-			int nMDUpdateAction = 0;
-			char cMDEntryType = 0;
-			int nApplID = 0;
-
-			if (pField = pFieldMapInGroup->getField(FIELD::MDUpdateAction))
-			{
-				nMDUpdateAction = (int)pField->getUInt();
-			}
-			if (pField = pFieldMapInGroup->getField(FIELD::MDEntryType))
-			{
-				cMDEntryType = (char)pField->getUInt();
-			}
-			if (pField = pFieldMapInGroup->getField(FIELD::ApplID))
-			{
-				nApplID = (int)pField->getInt();
-			}
-			if (nMDUpdateAction == 0 && cMDEntryType == 'J')//Empty Book
-			{
-				MapIntToSetInt::iterator itMap = m_mapApplID2SecurityIDs.find(nApplID);
-				if (itMap != m_mapApplID2SecurityIDs.end())
-				{
-					SetInt::iterator itSet = itMap->second.begin();
-					while (itSet != itMap->second.end())
-					{
-						//Empty Book
-						MapIntToMktDtItemPtr::iterator it = m_mapSecurityIDToMktDt.find(*itSet);
-						if (it != m_mapSecurityIDToMktDt.end())
-						{
-							MktDtItem* qi = it->second;
-							EmptyMktDtItem(qi);
-							qi->nTimeStamp = nTimeStamp;
-							//if (uMatchEventIndicator & 0x80)
-							//{
-							PushMktDtItem(qi);
-							//}
-						}
-						itSet++;
-					}
-				}
-			}
-		}
-	}
-}
 
 void Worker::updateOrderBook(int SecurityID)
 {
-	MapIntToMktDtItemPtr::iterator iter = m_mapSecurityIDToMktDt.find(SecurityID);
-	if (iter != m_mapSecurityIDToMktDt.end())
+	MapIntToQuoteItemPtr::iterator iter = m_mapSecurityID2Quote.find(SecurityID);
+	if (iter != m_mapSecurityID2Quote.end())
 	{
 		PushMktDtItem(iter->second);
 	}
@@ -2344,7 +1902,7 @@ void Worker::updateOrderBook(int SecurityID)
 
 }
 
-void Worker::PushMktDtItem( const MktDtItem* pItem )
+void Worker::PushMktDtItem( const QuoteItem* pItem )
 {
 	if (!pItem)
 		return ;
@@ -2531,7 +2089,7 @@ void Worker::PushMktDtItem( const MktDtItem* pItem )
 	*/
 }
 
-void Worker::EmptyMktDtItem(MktDtItem* pItem)
+void Worker::EmptyMktDtItem(QuoteItem* pItem)
 {
 	int i;
 	for (i = 0; i < 10; i++)
@@ -2564,7 +2122,7 @@ void Worker::EmptyMktDtItem(MktDtItem* pItem)
 
 
 //合并implied book 按价格排序，相同价格的数量相加
-void Worker::MergeBook(ConsolidatedBook* pBook, const MktDtItem* pItem)
+void Worker::MergeBook(ConsolidatedBook* pBook, const QuoteItem* pItem)
 {
 	int i = 0;//Implied Book Level
 	int j = 0;//Multiple-Depth Book Level
@@ -2755,7 +2313,6 @@ int FUNCTION_CALL_MODE Worker::ToApp( IMessage * lpMsg, const ISessionID * lpSes
 	pHeader->SetFieldValue(FIELD::TargetSubID, "G");
 	pHeader->SetFieldValue(FIELD::SenderLocationID, "CN");
 	pHeader->SetFieldValue(FIELD::LastMsgSeqNumProcessed, _ltoa(pSession->getExpectedTargetNum() - 1, szLastMsgSeqNumProcessed, 10 ) );
-
 
 	if (strncmp(msgType, "D", 1) == 0)
 	{

@@ -3,8 +3,6 @@
 #include "Connector.h"
 #include "Utility.h"
 #include "Packet.h"
-#include "Mutex.h"
-
 
 namespace MDP
 {
@@ -58,7 +56,6 @@ namespace MDP
 		/*接收，处理消息                                                        */
 		
 		bool read( Connector& );
-		void readFromSocket() throw( SocketRecvFailed );
 		void readMessages( Connector& );
 		bool readMessage( std::string& );
 //		void processRtsPacket();
@@ -141,8 +138,6 @@ namespace MDP
 		fd_set m_fds;
 
 		unsigned m_sendLength;
-
-		Mutex m_mutex;
 	};
 }
 

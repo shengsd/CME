@@ -42,14 +42,8 @@ namespace MDP
 		//返回当前时间与创建时间的差值（单位：秒）
 		int getTimeLimit();
 
-		//		bool containsSeqNum(unsigned int sn);
-
-		//		void extractMessage( Message& msg, unsigned int msgProcessCount );
-
 	private:
 		char m_szPacket[MAXPACKETSIZE];
-
-		//PacketHeader* m_pPacketHeader;
 
 		int m_packetSize;
 

@@ -1,7 +1,7 @@
 #pragma once
 #include "ExMDP.h"
-#include "include/hsfix2_interface.h"
-#include "mfcDlg.h"
+//#include "include/hsfix2_interface.h"
+#include "cmeDlg.h"
 #include <set>
 #include <fstream>
 #include "include/HSFIXEngn.h"
@@ -22,7 +22,7 @@
 #define STATUS_FAIL			1
 
 ///订单
-typedef struct tagORDER
+typedef struct 
 {
 	TCHAR MsgType[2];//D=New Order F=Order Cancel Request G=Order Cancel/Replace Request
 	TCHAR	Account[13];	//Unique account identifier.
@@ -51,7 +51,7 @@ typedef struct tagORDER
 } ORDER;
 
 //订单反馈、成交回报
-typedef struct tagEXCREPORT
+typedef struct 
 {
 	TCHAR	Account[13];	//Unique account identifier.
 	TCHAR ClOrdID[21];//本地单号，每条订单（委托指令）对应一个本地单号|Unique order identifier assigned by client system. 
@@ -83,9 +83,10 @@ typedef struct tagEXCREPORT
 	TCHAR Text[151];
 }EXCREPORT;
 
-typedef struct tagMktDtItem
+typedef struct 
 {
 	int  securityID;		//CME合约唯一ID,主键
+	unsigned int RptSeq;		//合约更新序号
 	//	char szExchangeType[12];		//交易类别
 	//	char szCommodityType[12];	//品种代码类别
 	//	char szContractCode[32];		//合约代码
@@ -108,7 +109,7 @@ typedef struct tagMktDtItem
 	long tolVolume;					//总成交
 	int cMarketStatus;				//合约市场状态
 	int nTimeStamp;					//时间戳（本地时间）
-}MktDtItem;
+}QuoteItem;
 
 //合并后的买卖盘（）
 typedef struct
@@ -146,8 +147,31 @@ typedef struct tagInstrument
 	int  GBIMarketDepth;				//implied行情深度
 	InstrumentLeg insLeg[2];			//套利
 	int  SecurityTradingStatus;			//交易市场状态
+	unsigned char MDSecurityTradingStatus;	//交易状态
 }Instrument;
 
+//创建FIX消息，函数中使用，可以自动销毁消息
+class CFIXMSG
+{
+public:
+	CFIXMSG(char * lpBeginString, char * lpMsgType)
+	{
+		lpMsg = CreateMessage(lpBeginString, lpMsgType);
+	}
+
+	~CFIXMSG()
+	{
+		DestroyMessage(lpMsg);
+	}
+
+	IMessage * GetMsg()
+	{
+		return lpMsg;
+	}
+
+private:
+	IMessage * lpMsg;
+};
 
 class Worker: public Application, public IApplication
 {
@@ -156,21 +180,21 @@ public:
 	~Worker(void);
 
 	//回写方式，直接调用函数
-	void setDlg(CmfcDlg* pDlg) 
+	void setDlg(CcmeDlg* pDlg) 
 	{
 		m_pDlg = pDlg;
 	}
 
 	// 主对话框 直接操作图形界面
-	CmfcDlg* m_pDlg;
+	CcmeDlg* m_pDlg;
 	//HWND m_hWindDlg;
 
 	//打印日志到图形界面
 	void __cdecl WriteLog(int nLevel, const TCHAR *szFormat, ...);
 
 	//行情引擎开关
-	UINT startMktDt();
-	UINT stopMktDt();
+	UINT startQuote();
+	UINT stopQuote();
 
 	//用于MDP3.0行情调试
 	std::ofstream m_fLog;
@@ -201,7 +225,7 @@ public:
 	void StopTrade();
 
 	///查询订单状态，开启交易后第一件事
-	void QueryOrderStatus();
+	void MassOrderStatusQuery();
 
 	///下单，回写(修改界面)
 	/**
@@ -219,7 +243,7 @@ public:
 	/**
 	*@param  ORDER& order 被改订单
 	*/
-	int ReplaceOrder(ORDER& order);
+	int AlterOrder(ORDER& order);
 
 	///下单、改单、撤单、订单查询反馈，成交回报
 	/**
@@ -231,7 +255,7 @@ public:
 	void CancelReject(const IMessage* pMsg);
 
 	///询价
-	int Quote(ORDER& order);
+	int RequestForQuote(ORDER& order);
 
 	///询价反馈
 	void QuoteAck(const IMessage* pMsg);
@@ -288,7 +312,7 @@ public:
 	int GetInstrumentBySecurityID(const int securityID, Instrument& inst);
 
 	//通过行情接收合约
-	void OnUpdate(MDPFieldMap* pFieldMap);
+	void OnUpdateContract(MDPFieldMap* pFieldMap);
 private:
 	typedef std::map<int, Instrument> MapIntToInstrument;
 	MapIntToInstrument m_mapSecurityID2Inst;//外部合约ID -> Instrument
@@ -305,47 +329,29 @@ public:
 	void SecurityStatus(MDPFieldMap* pFieldMap);
 
 	//MDIncrementalRefreshBook
-	void UpdateBook(MDPFieldMap* pFieldMap);
-
-	//MDIncrementalRefreshSessionStatistics
-	void UpdateSessionStatistics(MDPFieldMap* pFieldMap);
-
-	//MDIncrementalRefreshDailyStatistics
-	void UpdateDailyStatistics(MDPFieldMap* pFieldMap);
-
-	//MDIncrementalRefreshVolume
-	void UpdateVolume(MDPFieldMap* pFieldMap);
-
-	//MDIncrementalRefreshTrade
-	//void UpdateTrade(MDPFieldMap* pFieldMap);
-
-	//MDIncrementalRefreshTradeSummary
-	void UpdateTradeSummary(MDPFieldMap* pFieldMap);
-
-	//ChannelReset
-	void ChannelReset(MDPFieldMap* pFieldMap);
+	void UpdateQuoteItem(MDPFieldMap* pFieldMap);
 
 	void updateOrderBook(int SecurityID);
 
 private:
-	typedef std::map<int, MktDtItem*> MapIntToMktDtItemPtr;
+	typedef std::map<int, QuoteItem*> MapIntToQuoteItemPtr;
 
 	typedef std::set<int> SetInt;
 
 	typedef std::map<int, SetInt> MapIntToSetInt;
 
-	MapIntToMktDtItemPtr m_mapSecurityIDToMktDt;//外部合约 -> 行情信息
+	MapIntToQuoteItemPtr m_mapSecurityID2Quote;//外部合约 -> 行情信息
 
 	MapIntToSetInt m_mapApplID2SecurityIDs;//ChannelID -> 包含的外部合约
 
 	//推送行情消息
-	void PushMktDtItem(const MktDtItem* pItem);
+	void PushMktDtItem(const QuoteItem* pItem);
 
 	//重置合约行情信息
-	void EmptyMktDtItem(MktDtItem* pItem);
+	void EmptyMktDtItem(QuoteItem* pItem);
 
 	//merge actual book and implied book
-	void MergeBook(ConsolidatedBook* pBook, const MktDtItem* pItem);
+	void MergeBook(ConsolidatedBook* pBook, const QuoteItem* pItem);
 
 	//把val插入lvs数组的pos位置中，并丢弃最后一个元素
 	//对于错误的pos，不做任何动作

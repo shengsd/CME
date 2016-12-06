@@ -1,7 +1,6 @@
 #pragma once
 #pragma warning( disable : 4503 4355 4786 4290 )
 #include <Winsock2.h>
-typedef int socklen_t;
 #include <set>
 #include <queue>
 #include <time.h>
@@ -9,12 +8,27 @@ typedef int socklen_t;
 
 namespace MDP
 {
+	typedef std::set < int > Sockets;
+	typedef std::queue < int > Queue;
+
+	//
+	class Strategy
+	{
+	public:
+		virtual ~Strategy() {}
+		//virtual void onEvent( Connector&, int socket ) = 0;
+		//virtual void onConnect( Connector&, int  ) = 0;
+		//virtual void onWrite( Connector&, int socket ) = 0;
+		virtual bool onData(  Connector&, int ) = 0;
+		//virtual void onDisconnect( Connector&, int ) = 0;
+		virtual void onError( Connector&, int  ) = 0;
+		//virtual void onError( Connector& ) = 0;
+		virtual void onTimeout( Connector& ) = 0;
+	};
+
 	/// Connects sockets to remote ports and addresses.
 	class Connector
 	{
-	public:
-		class Strategy;
-
 		Connector();
 		~Connector();
 
@@ -37,10 +51,7 @@ namespace MDP
 		{ return m_readSockets.size() - 1; }
 
 	private:
-		typedef std::set < int > Sockets;
-		typedef std::queue < int > Queue;
 
-		//bool listen();
 		void buildSet( const Sockets&, fd_set& );
 		//inline timeval* getTimeval( bool poll, long timeout );
 		//inline bool sleepIfEmpty( bool poll );
@@ -48,35 +59,13 @@ namespace MDP
 		void processReadSet( Strategy&, fd_set& );
 		void processWriteSet( Strategy&, fd_set& );
 		void processExceptSet( Strategy&, fd_set& );
-
+		void block( Strategy& strategy, bool poll = 0, long timeout = 0 );
 		int m_timeout;
-		timeval m_timeval;
-// #ifndef SELECT_DECREMENTS_TIME
-// 		clock_t m_ticks;
-// #endif
 
-		//int m_signal;
-		//int m_interrupt;
+		timeval m_timeval;
+
 		Sockets m_connectSockets;
 
 		Sockets m_readSockets;
-		Sockets m_writeSockets;
-		//Queue m_dropped;
-
-	public:
-
-		class Strategy
-		{
-		public:
-			virtual ~Strategy() {}
-//			virtual void onEvent( Connector&, int socket ) = 0;
-			virtual void onConnect( Connector&, int socket ) = 0;
-			virtual void onWrite( Connector&, int socket ) = 0;
-			virtual bool onData(  Connector&, int ) = 0;
-			virtual void onDisconnect( Connector&, int ) = 0;
-			virtual void onError( Connector&, int socket ) = 0;
-			virtual void onError( Connector& ) = 0;
-			virtual void onTimeout( Connector& ) = 0;
-		};
 	};
 }

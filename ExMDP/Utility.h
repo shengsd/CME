@@ -44,7 +44,6 @@
 #include <process.h>
 #include <direct.h>
 #include <time.h>
-typedef int socklen_t;
 typedef int ssize_t;
 /////////////////////////////////////////////
 #else

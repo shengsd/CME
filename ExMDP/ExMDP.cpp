@@ -8,40 +8,29 @@ MDP::Initiator* p = NULL;
 
 EXMDP_API int StartEngine( ConfigStruct* configStruct, Application* application )
 {
-	if (configStruct == NULL)
-		return -1;
-	if (application == NULL)
+	if (!p)
 	{
-		strcpy(configStruct->errorInfo, "Param Application* is NULL");
-		return -1;
+		p = new MDP::Initiator;
+		return p->Start(configStruct, application);
 	}
-
-	try
+	else
 	{
-		if (p == NULL)
-			p = new MDP::Initiator;
-		else
-			throw MDP::RuntimeError("[StartEngine]: failed. Engine already started!");
-		p->start(configStruct, application);
-	}
-	catch ( std::exception& e )
-	{
-		strcpy(configStruct->errorInfo, e.what());
 		return -1;
 	}
-
-	return 0;
 }
 
 EXMDP_API int StopEngine()
 {
 	if (p)
 	{
-		p->stop();
+		p->Stop();
 		delete p;
 		p = NULL;
 		return 0;
 	}
-	return -1;
+	else
+	{
+		return -1;
+	}
 }
 

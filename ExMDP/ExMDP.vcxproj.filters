@@ -54,25 +54,10 @@
     <ClInclude Include="TinyXML\tinystr.h">
       <Filter>TinyXML\Headers</Filter>
     </ClInclude>
-    <ClInclude Include="Utility.h">
-      <Filter>头文件</Filter>
-    </ClInclude>
-    <ClInclude Include="Mutex.h">
-      <Filter>头文件</Filter>
-    </ClInclude>
-    <ClInclude Include="Exceptions.h">
-      <Filter>头文件</Filter>
-    </ClInclude>
     <ClInclude Include="Initiator.h">
       <Filter>头文件</Filter>
     </ClInclude>
-    <ClInclude Include="Connector.h">
-      <Filter>头文件</Filter>
-    </ClInclude>
     <ClInclude Include="Packet.h">
-      <Filter>头文件</Filter>
-    </ClInclude>
-    <ClInclude Include="Session.h">
       <Filter>头文件</Filter>
     </ClInclude>
     <ClInclude Include="otf_api\Field.h">
@@ -126,9 +111,6 @@
     <ClInclude Include="uk_co_real_logic_sbe_ir_generated\TokenCodec.hpp">
       <Filter>SBEdecoder\Headers</Filter>
     </ClInclude>
-    <ClInclude Include="resource.h">
-      <Filter>头文件</Filter>
-    </ClInclude>
     <ClInclude Include="SBEdecoder.h">
       <Filter>头文件</Filter>
     </ClInclude>
@@ -146,19 +128,10 @@
     <ClCompile Include="Channel.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
-    <ClCompile Include="Utility.cpp">
-      <Filter>源文件</Filter>
-    </ClCompile>
     <ClCompile Include="Initiator.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
-    <ClCompile Include="Connector.cpp">
-      <Filter>源文件</Filter>
-    </ClCompile>
     <ClCompile Include="Packet.cpp">
-      <Filter>源文件</Filter>
-    </ClCompile>
-    <ClCompile Include="Session.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
     <ClCompile Include="include\otf_api\Ir.cpp">

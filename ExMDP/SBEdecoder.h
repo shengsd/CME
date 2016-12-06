@@ -51,7 +51,7 @@ namespace MDP
 			if ( i == m_groups.end() )
 				return 0;
 			else
-				return i->second.size();		
+				return i->second.size();
 		}
 
 
@@ -97,7 +97,7 @@ namespace MDP
 					delete *j;
 				}
 			}
-			m_groups.clear();		
+			m_groups.clear();
 		}
 
 	private:
@@ -115,7 +115,6 @@ namespace MDP
 		virtual Ir *irForTemplateId(const int templateId, const int schemaVersion)
 		{
 			//std::cout << "Message lookup id=" << templateId << " version=" << schemaVersion << " offset " << /*listener_.bufferOffset() << */std::endl;
-
 			// lookup in IrCollection the IR for the template ID and version
 			return (Ir *)IrCollection::message(templateId, schemaVersion);
 		};
@@ -123,8 +122,6 @@ namespace MDP
 		// 	 	private:
 		// 	 	Listener &listener_;
 	};
-
-
 
 	// class to encapsulate all the callbacks
 	class CarCallbacks : public OnNext, public OnError, public OnCompleted
@@ -147,15 +144,15 @@ namespace MDP
 		{
 			m_pFieldMap = &m_fieldMap;
 		}
-		/*
+
 		CarCallbacks(Listener &listener)
 		:listener_(listener),
 		indent_(0),
-		m_status(false)
+		m_status(false),
+		m_fstr(NULL)
 		{
 		m_pFieldMap = &m_fieldMap;
 		}
-		*/
 
 		~CarCallbacks()
 		{
@@ -174,8 +171,6 @@ namespace MDP
 			m_pFieldMap->setField(tag, f);
 			if (m_fstr)
 			{
-
-
 				*m_fstr << "Field name=\"" << f.fieldName() << "\" id=" << f.schemaId();
 
 				if (f.isComposite())
