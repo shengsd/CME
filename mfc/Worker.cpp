@@ -53,7 +53,6 @@ BOOL Worker::StartTrade()
 	TCHAR cfgPath[MAX_PATH];
 	GetModuleFileName(NULL, cfgPath, MAX_PATH);
 	strcpy(strrchr(cfgPath, '\\'), "\\Config\\FIX_CME.ini");
-
 	/*
 	// 创建会话工厂
 	ISessionFactory* lpSessionFactory=CreateSessionFactory();
@@ -70,9 +69,10 @@ BOOL Worker::StartTrade()
 	}
 	*/
 	//启动HSfixEngine
-	if(EngnInit((char*)cfgPath, this) != 0)
+	int nRet = EngnInit(cfgPath, this);
+	if(nRet != 0)
 	{
-		WriteLog(LOG_ERROR, _T("%s"), cfgPath);
+		WriteLog(LOG_ERROR, _T("EngnInit failed! return code=%d, cfgPath=%s"), nRet, cfgPath);
 		return FALSE;
 	}
 
@@ -975,10 +975,10 @@ UINT Worker::startQuote()
 	WriteLog(LOG_INFO, "MDP3.0 Engine Starting, please wait...");
 	//WriteLog(LOG_ERROR, "%s", szConfigPath);
 	_mkdir(".\\CME");
-	m_fLog.open(".\\CME\\mfc.log", std::ios::out | std::ios::binary | std::ios::trunc);
-	if (!m_fLog.is_open())
+	m_fCMEdemoLog.open(".\\CME\\CMEdemo.log", std::ios::out | std::ios::binary | std::ios::trunc);
+	if (!m_fCMEdemoLog.is_open())
 	{
-		WriteLog(LOG_ERROR, "Open mfc.log failed\n");
+		WriteLog(LOG_ERROR, "Open CMEdemo.log failed\n");
 		return -1;
 	}
 
@@ -1010,7 +1010,7 @@ UINT Worker::stopQuote()
 		WriteLog(LOG_ERROR, "Stop engine failed! Exiting...");
 		return -1;
 	}
-	m_fLog.close();
+	m_fCMEdemoLog.close();
 	WriteLog(LOG_INFO, "Engine Stopped!");
 	return 0;
 }
@@ -1023,7 +1023,6 @@ void Worker::OnUpdateContract(MDPFieldMap* pFieldMap)
 
 	MDPField* pField = NULL;
 	MDPFieldMap* pFieldMapInGroup = NULL;
-	int nCount, i;
 
 	Instrument inst;
 	memset(&inst, 0, sizeof(inst));
@@ -1035,7 +1034,7 @@ void Worker::OnUpdateContract(MDPFieldMap* pFieldMap)
 	//收到过为0的错误数据，在此做简单校验
 	if (inst.SecurityID <= 0)
 	{
-		m_fLog << "[OnUpdate]: error security id:" << inst.SecurityID << std::endl;
+		m_fCMEdemoLog << "[OnUpdate]: error security id:" << inst.SecurityID << std::endl;
 		return ;
 	}
 
@@ -1057,7 +1056,7 @@ void Worker::OnUpdateContract(MDPFieldMap* pFieldMap)
 		MapIntToInstrument::iterator iter = m_mapSecurityID2Inst.find(inst.SecurityID);
 		if (iter != m_mapSecurityID2Inst.end())
 		{
-			m_fLog << "[OnUpdate]:Delete Instrument, Symbol:" << inst.Symbol << std::endl;
+			m_fCMEdemoLog << "[OnUpdate]:Delete Instrument, Symbol:" << inst.Symbol << std::endl;
 			m_mapSecurityID2Inst.erase(iter);
 		}
 		return;
@@ -1107,11 +1106,37 @@ void Worker::OnUpdateContract(MDPFieldMap* pFieldMap)
 		pField->getArray(0, inst.SecurityType, 0, pField->length());
 	}
 
+	//合约生效日期、最后交易日
+	int nCount = pFieldMap->getFieldMapNumInGroup(FIELD::NoEvents);
+	for (int i = 0; i < nCount; i++)
+	{
+		if (pFieldMapInGroup = pFieldMap->getFieldMapPtrInGroup(FIELD::NoEvents, i))
+		{
+			int nEventType = 0;
+			uint64_t uEventTime = 0;
+			if (pField = pFieldMapInGroup->getField(FIELD::EventType))
+			{
+				nEventType = (int)pField->getUInt();
+			}
+			if (pField = pFieldMapInGroup->getField(FIELD::EventTime))
+			{
+				uEventTime = pField->getUInt();
+			}
+			if (nEventType == 7)//Expiration 最后交易日
+			{
+				time_t temp = uEventTime/1000000000;
+				struct tm *timeinfo = localtime(&temp);
+				inst.nBuyLastTradeDay = (timeinfo->tm_year+1900) * 10000 + timeinfo->tm_mon * 100 + timeinfo->tm_mday;
+				break;
+			}
+		}
+	}
+
 	//行情深度
 	nCount = pFieldMap->getFieldMapNumInGroup(FIELD::NoMdFeedTypes);
 	inst.GBXMarketDepth = 10;
 	inst.GBIMarketDepth = 2;
-	for (i = 0; i < nCount; i++)
+	for (int i = 0; i < nCount; i++)
 	{
 		if (pFieldMapInGroup = pFieldMap->getFieldMapPtrInGroup(FIELD::NoMdFeedTypes, i))
 		{
@@ -1143,8 +1168,10 @@ void Worker::OnUpdateContract(MDPFieldMap* pFieldMap)
 		}
 	}
 
-	m_fLog << "[OnUpdate]: Symbol=" << inst.Symbol << ", SecurityID=" << inst.SecurityID << ", SecurityExchange=" << inst.SecurityExchange
-		<< ", Asset=" << inst.Asset << ",CFICode=" << inst.CFICode << ", SecurityType=" << inst.SecurityType << ", SecurityTradingStatus=" << inst.SecurityTradingStatus << ", Action=" << action << ", " << std::endl;
+	m_fCMEdemoLog << "[OnUpdate]: Symbol=" << inst.Symbol << ", SecurityID=" << inst.SecurityID << ", SecurityExchange=" << inst.SecurityExchange
+		<< ", Asset=" << inst.Asset << ", CFICode=" << inst.CFICode << ", SecurityType=" << inst.SecurityType << ", nBuyLastTradeDay=" << inst.nBuyLastTradeDay
+		<< ", GBXMarketDepth=" << inst.GBXMarketDepth << ", GBIMarketDepth=" << inst.GBIMarketDepth
+		<< ", SecurityTradingStatus=" << inst.SecurityTradingStatus << ", Action=" << action << ", " << std::endl;
 
 	m_mapSecurityID2Inst[inst.SecurityID] = inst;
 }
@@ -1165,64 +1192,64 @@ void Worker::onMarketData(MDPFieldMap* pMDPFieldMap, const int templateID)
 	switch (templateID)
 	{
 	case 4://ChannelReset4
-		m_fLog << "[onMarketData]: Received ChannelReset4" << std::endl;
+		m_fCMEdemoLog << "[onMarketData]: Received ChannelReset4" << std::endl;
 		UpdateQuoteItem(pMDPFieldMap);
 		break;
 	case 12://AdminHeartbeat12
-		m_fLog << "[onMarketData]: Received AdminHeartbeat12" << std::endl;
+		m_fCMEdemoLog << "[onMarketData]: Received AdminHeartbeat12" << std::endl;
 		break;
 	case 27://MDInstrumentDefinitionFuture27
-		m_fLog << "[onMarketData]: Received MDInstrumentDefinitionFuture27" << std::endl;
+		m_fCMEdemoLog << "[onMarketData]: Received MDInstrumentDefinitionFuture27" << std::endl;
 		OnUpdateContract(pMDPFieldMap);
 		break;
 	case 29://MDInstrumentDefinitionSpread29
-		m_fLog << "[onMarketData]: Received MDInstrumentDefinitionSpread29" << std::endl;
+		m_fCMEdemoLog << "[onMarketData]: Received MDInstrumentDefinitionSpread29" << std::endl;
 		OnUpdateContract(pMDPFieldMap);
 		break;
 	case 30://SecurityStatus30
-		m_fLog << "[onMarketData]: Received SecurityStatus30" << std::endl;
+		m_fCMEdemoLog << "[onMarketData]: Received SecurityStatus30" << std::endl;
 		SecurityStatus(pMDPFieldMap);
 		break;
 	case 41://MDInstrumentDefinitionOption41
-		m_fLog << "[onMarketData]: Received MDInstrumentDefinitionOption41" << std::endl;
+		m_fCMEdemoLog << "[onMarketData]: Received MDInstrumentDefinitionOption41" << std::endl;
 		OnUpdateContract(pMDPFieldMap);
 		break;
 	case 32://MDIncrementalRefreshBook32
-		m_fLog << "[onMarketData]: Received MDIncrementalRefreshBook32" << std::endl;
+		m_fCMEdemoLog << "[onMarketData]: Received MDIncrementalRefreshBook32" << std::endl;
 		UpdateQuoteItem(pMDPFieldMap);
 		break;
 	case 33://MDIncrementalRefreshDailyStatistics33
-		m_fLog << "[onMarketData]: Received MDIncrementalRefreshDailyStatistics33" << std::endl;
+		m_fCMEdemoLog << "[onMarketData]: Received MDIncrementalRefreshDailyStatistics33" << std::endl;
 		UpdateQuoteItem(pMDPFieldMap);
 		break;
 	case 34://MDIncrementalRefreshLimitsBanding34
-		m_fLog << "[onMarketData]: Received MDIncrementalRefreshLimitsBanding34" << std::endl;
+		m_fCMEdemoLog << "[onMarketData]: Received MDIncrementalRefreshLimitsBanding34" << std::endl;
 		break;
 	case 35://MDIncrementalRefreshSessionStatistics35
-		m_fLog << "[onMarketData]: Received MDIncrementalRefreshSessionStatistics35" << std::endl;
+		m_fCMEdemoLog << "[onMarketData]: Received MDIncrementalRefreshSessionStatistics35" << std::endl;
 		UpdateQuoteItem(pMDPFieldMap);
 		break;
 	case 36://MDIncrementalRefreshTrade36
-		m_fLog << "[onMarketData]: Received MDIncrementalRefreshTrade36" << std::endl;
+		m_fCMEdemoLog << "[onMarketData]: Received MDIncrementalRefreshTrade36" << std::endl;
 		UpdateQuoteItem(pMDPFieldMap);
 		break;
 	case 37://MDIncrementalRefreshVolume37
-		m_fLog << "[onMarketData]: Received MDIncrementalRefreshVolume37" << std::endl;
+		m_fCMEdemoLog << "[onMarketData]: Received MDIncrementalRefreshVolume37" << std::endl;
 		UpdateQuoteItem(pMDPFieldMap);
 		break;
 	case 38://SnapshotFullRefresh38
-		m_fLog << "[onMarketData]: Received SnapshotFullRefresh38" << std::endl;
+		m_fCMEdemoLog << "[onMarketData]: Received SnapshotFullRefresh38" << std::endl;
 		SnapShot(pMDPFieldMap);
 		break;
 	case 39://QuoteRequest39
-		m_fLog << "[onMarketData]: Received QuoteRequest39" << std::endl;
+		m_fCMEdemoLog << "[onMarketData]: Received QuoteRequest39" << std::endl;
 		break;
 	case 42://MDIncrementalRefreshTradeSummary42
-		m_fLog << "[onMarketData]: Received MDIncrementalRefreshTradeSummary42" << std::endl;
+		m_fCMEdemoLog << "[onMarketData]: Received MDIncrementalRefreshTradeSummary42" << std::endl;
 		UpdateQuoteItem(pMDPFieldMap);
 		break;
 	default:
-		m_fLog << "[onMarketData]: Received Unknown Message ID:" << templateID << std::endl;
+		m_fCMEdemoLog << "[onMarketData]: Received Unknown Message ID:" << templateID << std::endl;
 		break;
 	}
 }
@@ -1435,7 +1462,7 @@ void Worker::SnapShot(MDPFieldMap* pFieldMap)
 		}
 	}
 
-	m_fLog << "[Worker::SnapShot]: SecurityID=" << pItem->securityID << ", RptSeq=" << pItem->RptSeq << ", Last=" << pItem->last << ", Open=" << pItem->open << std::endl;
+	m_fCMEdemoLog << "[Worker::SnapShot]: SecurityID=" << pItem->securityID << ", RptSeq=" << pItem->RptSeq << ", Last=" << pItem->last << ", Open=" << pItem->open << std::endl;
 	PushMktDtItem(pItem);
 }
 
@@ -1471,12 +1498,12 @@ void Worker::UpdateQuoteItem(MDPFieldMap* pFieldMap)
 				nSecurityID = (int)pField->getInt();
 			}
 
-			m_fLog << "[Worker::UpdateQuoteItem]: SecurityID:" << nSecurityID << std::endl;
+			m_fCMEdemoLog << "[Worker::UpdateQuoteItem]: SecurityID:" << nSecurityID << std::endl;
 			Instrument inst;
 			//是否在合约列表中
 			if (GetInstrumentBySecurityID(nSecurityID, inst))
 			{
-				m_fLog <<  "[Worker::UpdateQuoteItem]: GetInstrumentBySecurityID failed." << std::endl;
+				m_fCMEdemoLog <<  "[Worker::UpdateQuoteItem]: GetInstrumentBySecurityID failed." << std::endl;
 				continue;
 			}
 
@@ -1489,7 +1516,7 @@ void Worker::UpdateQuoteItem(MDPFieldMap* pFieldMap)
 			}
 			else
 			{
-				m_fLog << "[Worker::UpdateQuoteItem]: Can't find the existing QuoteItem, create one." << std::endl;
+				m_fCMEdemoLog << "[Worker::UpdateQuoteItem]: Can't find the existing QuoteItem, create one." << std::endl;
 				qi = new QuoteItem;
 				memset(qi, 0, sizeof(QuoteItem));
 				m_mapSecurityID2Quote[nSecurityID] = qi;
@@ -1511,7 +1538,7 @@ void Worker::UpdateQuoteItem(MDPFieldMap* pFieldMap)
 				RptSeq = (unsigned int)pField->getUInt();
 				if (RptSeq != qi->RptSeq)
 				{
-					m_fLog << "[Worker::UpdateQuoteItem]: security id :" << qi->securityID << " RptSeq need " << qi->RptSeq << " receive " << RptSeq << std::endl;
+					m_fCMEdemoLog << "[Worker::UpdateQuoteItem]: security id :" << qi->securityID << " RptSeq need " << qi->RptSeq << " receive " << RptSeq << std::endl;
 					continue;
 				}
 				else
@@ -1521,7 +1548,7 @@ void Worker::UpdateQuoteItem(MDPFieldMap* pFieldMap)
 			}
 			else
 			{
-				m_fLog << "[Worker::UpdateQuoteItem]: field RptSeq lost" << std::endl;
+				m_fCMEdemoLog << "[Worker::UpdateQuoteItem]: field RptSeq lost" << std::endl;
 			}
 			
 			/*条目类型
@@ -1572,7 +1599,7 @@ void Worker::UpdateQuoteItem(MDPFieldMap* pFieldMap)
 			}
 			if (nLevel < 1 || nLevel >10 )//错误的数值会引起其它问题
 			{
-				m_fLog << "Invalid nLevel: " << nLevel << std::endl;
+				m_fCMEdemoLog << "Invalid nLevel: " << nLevel << std::endl;
 				continue;
 			}
 			//价格
@@ -1591,109 +1618,109 @@ void Worker::UpdateQuoteItem(MDPFieldMap* pFieldMap)
 			switch (cMDEntryType)
 			{
 			case '0':// Bid
-				m_fLog << "Bid ";
+				m_fCMEdemoLog << "Bid ";
 				if (nMDUpdateAction == 0)// New
 				{
-					m_fLog << "New ";
+					m_fCMEdemoLog << "New ";
 					LevelInsert(qi->bidPrice, nLevel-1, inst.GBXMarketDepth, dMDEntryPx);
 					LevelInsert(qi->bidVolume, nLevel-1, inst.GBXMarketDepth, nQty);
 				}
 				else if (nMDUpdateAction == 1)// Change
 				{
-					m_fLog << "Change ";
+					m_fCMEdemoLog << "Change ";
 					LevelChange(qi->bidPrice, nLevel-1, inst.GBXMarketDepth, dMDEntryPx);
 					LevelChange(qi->bidVolume, nLevel-1, inst.GBXMarketDepth, nQty);
 				}
 				else if (nMDUpdateAction == 2)// Delete
 				{
-					m_fLog << "Delete ";
+					m_fCMEdemoLog << "Delete ";
 					LevelDelete(qi->bidPrice, nLevel-1, inst.GBXMarketDepth);
 					LevelDelete(qi->bidVolume, nLevel-1, inst.GBXMarketDepth);
 				}
 				else if (nMDUpdateAction == 3)// Delete Thru
 				{
-					m_fLog << "Delete Thru";
+					m_fCMEdemoLog << "Delete Thru";
 					LevelClear(qi->bidPrice, inst.GBXMarketDepth);
 					LevelClear(qi->bidVolume, inst.GBXMarketDepth);
 				}
 				else if (nMDUpdateAction == 4)// Delete From
 				{
-					m_fLog << "Delete From";
+					m_fCMEdemoLog << "Delete From";
 					LevelDelFrom(qi->bidPrice, nLevel, inst.GBXMarketDepth);
 					LevelDelFrom(qi->bidVolume, nLevel, inst.GBXMarketDepth);
 				}
 				break;
 			case '1':// Offer
-				m_fLog << "Offer ";
+				m_fCMEdemoLog << "Offer ";
 				if (nMDUpdateAction == 0)// New
 				{
-					m_fLog << "New ";
+					m_fCMEdemoLog << "New ";
 					LevelInsert(qi->askPrice, nLevel-1, inst.GBXMarketDepth, dMDEntryPx);
 					LevelInsert(qi->askVolume, nLevel-1, inst.GBXMarketDepth, nQty);
 				}
 				else if (nMDUpdateAction == 1)// Change
 				{
-					m_fLog << "Change ";
+					m_fCMEdemoLog << "Change ";
 					LevelChange(qi->askPrice, nLevel-1, inst.GBXMarketDepth, dMDEntryPx);
 					LevelChange(qi->askVolume, nLevel-1, inst.GBXMarketDepth, nQty);
 				}
 				else if (nMDUpdateAction == 2)// Delete
 				{
-					m_fLog << "Delete ";
+					m_fCMEdemoLog << "Delete ";
 					LevelDelete(qi->askPrice, nLevel-1, inst.GBXMarketDepth);
 					LevelDelete(qi->askVolume, nLevel-1, inst.GBXMarketDepth);
 				}
 				else if (nMDUpdateAction == 3)// Delete Thru
 				{
-					m_fLog << "Delete Thru";
+					m_fCMEdemoLog << "Delete Thru";
 					LevelClear(qi->askPrice, inst.GBXMarketDepth);
 					LevelClear(qi->askVolume, inst.GBXMarketDepth);
 				}
 				else if (nMDUpdateAction == 4)// Delete From
 				{
-					m_fLog << "Delete From";
+					m_fCMEdemoLog << "Delete From";
 					LevelDelFrom(qi->askPrice, nLevel, inst.GBXMarketDepth);
 					LevelDelFrom(qi->askVolume, nLevel, inst.GBXMarketDepth);
 				}
 				break;
 			case 'E':// Implied Bid
-				m_fLog << "Implied Bid ";
+				m_fCMEdemoLog << "Implied Bid ";
 				if (nMDUpdateAction == 0)// New
 				{
-					m_fLog << "New ";
+					m_fCMEdemoLog << "New ";
 					LevelInsert(qi->impliedBid, nLevel-1, inst.GBIMarketDepth, dMDEntryPx);
 					LevelInsert(qi->impliedBidVol, nLevel-1, inst.GBIMarketDepth, nQty);
 				}
 				else if (nMDUpdateAction == 1)// Change
 				{
-					m_fLog << "Change ";
+					m_fCMEdemoLog << "Change ";
 					LevelChange(qi->impliedBid, nLevel-1, inst.GBIMarketDepth, dMDEntryPx);
 					LevelChange(qi->impliedBidVol, nLevel-1, inst.GBIMarketDepth, nQty);
 				}
 				else if (nMDUpdateAction == 2)// Delete
 				{
-					m_fLog << "Delete ";
+					m_fCMEdemoLog << "Delete ";
 					LevelDelete(qi->impliedBid, nLevel-1, inst.GBIMarketDepth);
 					LevelDelete(qi->impliedBidVol, nLevel-1, inst.GBIMarketDepth);
 				}
 				break;
 			case 'F':// Implied Offer
-				m_fLog << "Implied Offer ";
+				m_fCMEdemoLog << "Implied Offer ";
 				if (nMDUpdateAction == 0)// New
 				{
-					m_fLog << "New ";
+					m_fCMEdemoLog << "New ";
 					LevelInsert(qi->impliedAsk, nLevel-1, inst.GBIMarketDepth, dMDEntryPx);
 					LevelInsert(qi->impliedAskVol, nLevel-1, inst.GBIMarketDepth, nQty);
 				}
 				else if (nMDUpdateAction == 1)// Change
 				{
-					m_fLog << "Change ";
+					m_fCMEdemoLog << "Change ";
 					LevelChange(qi->impliedAsk, nLevel-1, inst.GBIMarketDepth, dMDEntryPx);
 					LevelChange(qi->impliedAskVol, nLevel-1, inst.GBIMarketDepth, nQty);
 				}
 				else if (nMDUpdateAction == 2)// Delete
 				{
-					m_fLog << "Delete ";
+					m_fCMEdemoLog << "Delete ";
 					LevelDelete(qi->impliedAsk, nLevel-1, inst.GBIMarketDepth);
 					LevelDelete(qi->impliedAskVol, nLevel-1, inst.GBIMarketDepth);
 				}
@@ -1772,7 +1799,7 @@ void Worker::UpdateQuoteItem(MDPFieldMap* pFieldMap)
 				break;
 			}
 			qi->nTimeStamp = nTimeStamp;
-			m_fLog << "nLevel: " << nLevel << std::endl;
+			m_fCMEdemoLog << "nLevel: " << nLevel << std::endl;
 			PushMktDtItem(qi);
 		}
 	}
@@ -1804,7 +1831,7 @@ void Worker::SecurityStatus(MDPFieldMap* pFieldMap)
 		{
 			pField->getArray(0, szSecurityGroup, 0, pField->length(0));
 		}
-		m_fLog << "[Worker::SecurityStatus]: Update status of SecurityGroup=" << szSecurityGroup << std::endl;
+		m_fCMEdemoLog << "[Worker::SecurityStatus]: Update status of SecurityGroup=" << szSecurityGroup << std::endl;
 		return ;
 	}
 	//是否在合约列表中
@@ -1884,7 +1911,7 @@ void Worker::SecurityStatus(MDPFieldMap* pFieldMap)
 		qi->nTimeStamp = timeinfo->tm_hour * 10000000 + timeinfo->tm_min * 100000 + timeinfo->tm_sec * 1000 + mSec;
 	}
 
-	m_fLog << "[Worker::SecurityStatus]: Update SecurityID=" << qi->securityID << ", MDSecurityTradingStatus=" << qi->cMarketStatus << std::endl;
+	m_fCMEdemoLog << "[Worker::SecurityStatus]: Update SecurityID=" << qi->securityID << ", MDSecurityTradingStatus=" << qi->cMarketStatus << std::endl;
 
 	PushMktDtItem(qi);
 }
@@ -1898,7 +1925,7 @@ void Worker::updateOrderBook(int SecurityID)
 		PushMktDtItem(iter->second);
 	}
 	else
-		m_fLog << "updateOrderBook  can't find it: "<<SecurityID <<"\n";
+		m_fCMEdemoLog << "updateOrderBook  can't find it: "<<SecurityID <<"\n";
 
 }
 

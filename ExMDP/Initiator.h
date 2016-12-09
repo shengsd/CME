@@ -79,7 +79,7 @@ namespace MDP
 
 	private:
 		//引擎日志文件 debug模式下可包含效行情解析日志
-		std::ofstream m_fLog;
+		std::ofstream m_fMDPLog;
 		//引擎日志函数
 		void WriteLog(char* szFormat, ...);
 		//写日志锁

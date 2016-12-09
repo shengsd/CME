@@ -143,6 +143,7 @@ typedef struct tagInstrument
 	TCHAR CFICode[8];					//Indicate the type of security.
 	int  ApplID;						//Indicates the channel ID as defined in the XML configuration file
 	double DisplayFactor;				//prices and ticks 的显示价格需要乘以此数
+	int nBuyLastTradeDay;		//最后交易日期
 	int  GBXMarketDepth;				//行情深度
 	int  GBIMarketDepth;				//implied行情深度
 	InstrumentLeg insLeg[2];			//套利
@@ -197,7 +198,7 @@ public:
 	UINT stopQuote();
 
 	//用于MDP3.0行情调试
-	std::ofstream m_fLog;
+	std::ofstream m_fCMEdemoLog;
 
 	//交易功能
 public:

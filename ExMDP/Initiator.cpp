@@ -38,7 +38,7 @@ namespace MDP
 		vsprintf (buffer+strlen(buffer), szFormat, args);
 		va_end (args);
 		EnterCriticalSection(&m_csLog);
-		m_fLog << buffer << std::endl;
+		m_fMDPLog << buffer << std::endl;
 		LeaveCriticalSection(&m_csLog);
 	}
 
@@ -74,11 +74,11 @@ namespace MDP
 		_mkdir(szPath);
 		SYSTEMTIME st;
 		GetSystemTime(&st);
-		sprintf(szPath, "%s\\MDP_%02d.log", szPath, st.wDay);
-		m_fLog.open(szPath, std::ofstream::app );
-		if ( !m_fLog.is_open() )
+		sprintf(szPath, "%s\\MDPEngine_%02d.log", szPath, st.wDay);
+		m_fMDPLog.open( szPath, std::ofstream::app );
+		if ( !m_fMDPLog.is_open() )
 		{
-			strcpy(configStruct->errorInfo, "[Initiator::Start]: Open log file failed!");
+			strcpy(configStruct->errorInfo, "[Initiator::Start]: Open MDPEngine.log failed!");
 			WriteLog("[Initiator::Start]: Open log file failed!");
 			return 1;
 		}
@@ -197,7 +197,7 @@ namespace MDP
 			delete j->second;
 		}
 		m_mapChannels.clear();
-		m_fLog.close();
+		m_fMDPLog.close();
 	}
 
 	void Initiator::ReceiveThread()
@@ -297,8 +297,8 @@ namespace MDP
 					pBuf += 2;
 					len -= 2;
 
-					//CarCallbacks carCbs(listener, &m_fLog);
-					CarCallbacks carCbs(listener);
+					CarCallbacks carCbs(listener, &m_fMDPLog);
+					//CarCallbacks carCbs(listener);
 					listener.dispatchMessageByHeader(m_irRepoX.header(), &m_irRepoX)
 						.resetForDecode(pBuf , len)
 						.subscribe(&carCbs, &carCbs, &carCbs);
@@ -308,6 +308,10 @@ namespace MDP
 						//WriteLog("[ProcessThread]: parse success, message template ID:%d", listener.getTemplateId());
 						//½âÎö³É¹¦
 						//g_lpfnWriteLog(LOG_DEBUG, "[onProcessorStart]: packet parse success");
+						if (listener.getTemplateId() == 38)
+						{
+							WriteLog("[onProcessorStart]: stop here");
+						}
 						m_application->onMarketData(carCbs.getFieldMapPtr(), listener.getTemplateId());
 					}
 					else

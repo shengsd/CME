@@ -63,13 +63,13 @@ namespace MDP
 		void increaseMarketRecoveryNextSeqNum() { ++m_MarketRecoveryNextSeqNum; }
 		void increaseInstrumentDefNextSeqNum() { ++m_InstrumentDefNextSeqNum; }
 
-//		void resetIncremental();
+		void resetIncremental();
 		void resetMarketRecovery();
 		void resetInstrumentDef();
 
 		void onEvent( const std::string& );
 
-		void onData( const char* , int );
+		//void onData( const char* , int );
 
 		//有效行情包队列
 		//std::queue<Packet> m_packetQueue;
@@ -82,7 +82,7 @@ namespace MDP
 //		typedef std::queue<Packet> PacketQueue;
 
 		//Incremental标志
-		bool m_bOnIncremental;
+		//bool m_bOnIncremental;
 
 		//Instrument Definition服务标志
 		bool m_bOnInstrumentDef;
@@ -126,7 +126,7 @@ namespace MDP
 		//size_t m_len;
 
 		std::ofstream m_fPackets;
-		std::ofstream m_fEvents;
+		std::ofstream m_fChannel;
 	};
 
 }
