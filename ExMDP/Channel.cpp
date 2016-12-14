@@ -24,8 +24,8 @@ namespace MDP
 		std::string s = szModulePath;
 		s.append("\\Log\\"+channelID);
 		_mkdir(s.c_str());
-		m_fPackets.open( s + "\\packets.log", std::ios::app );
-		m_fChannel.open(s +"\\channel.log", std::ios::app );
+		m_fPackets.open( s + "\\packets.log", std::ios::trunc );
+		m_fChannel.open(s +"\\channel.log", std::ios::trunc );
 	}
 
 	Channel::~Channel(void)

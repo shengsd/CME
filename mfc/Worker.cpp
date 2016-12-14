@@ -53,21 +53,7 @@ BOOL Worker::StartTrade()
 	TCHAR cfgPath[MAX_PATH];
 	GetModuleFileName(NULL, cfgPath, MAX_PATH);
 	strcpy(strrchr(cfgPath, '\\'), "\\Config\\FIX_CME.ini");
-	/*
-	// 创建会话工厂
-	ISessionFactory* lpSessionFactory=CreateSessionFactory();
-	if(!lpSessionFactory)
-	{
-	WriteLog(LOG_ERROR, "CreateSessionFactory() error...exit\n");
-	return FALSE;
-	}
-	// 初始化配置文件中配置的所有会话
-	int ret = lpSessionFactory->InitSessions(cfgPath, this, 10);
-	if(ret) {
-	WriteLog(LOG_ERROR, "InitSessions() error...exit\n");
-	return FALSE;
-	}
-	*/
+
 	//启动HSfixEngine
 	int nRet = EngnInit(cfgPath, this);
 	if(nRet != 0)
