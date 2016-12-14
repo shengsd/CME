@@ -35,7 +35,6 @@ namespace MDP
 				return &(i->second);
 		}
 
-
 		bool isSetGroup(int tag)
 		{
 			Groups::iterator i = m_groups.find( tag );

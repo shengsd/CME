@@ -308,6 +308,7 @@ namespace MDP
 						//WriteLog("[ProcessThread]: parse success, message template ID:%d", listener.getTemplateId());
 						//½âÎö³É¹¦
 						//g_lpfnWriteLog(LOG_DEBUG, "[onProcessorStart]: packet parse success");
+						
 						if (listener.getTemplateId() == 38)
 						{
 							WriteLog("[onProcessorStart]: stop here");

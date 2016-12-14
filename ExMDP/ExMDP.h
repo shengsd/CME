@@ -84,8 +84,9 @@ public:
 };
 
 //使用者必须定义派生类，并实现其中的回调函数
-struct Application
+class Application
 {
+public:
 	///行情报文回调函数
 	/**
 	*@param  MDPFieldMap* pMDPFieldMap		报文即一条记录

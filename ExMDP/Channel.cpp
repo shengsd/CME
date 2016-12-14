@@ -249,12 +249,10 @@ namespace MDP
 				//missed. Recover the lost data from Market Recovery Server.
 				if (seqNum - m_IncrementalNextSeqNum >= 5 || packet.getTimeLimit() >= m_poolTimeLimit) 
 				{
-					m_fChannel << "[checkRealTimeSpoolTimer]: " << packet.getTimeLimit() << " seconds passed" << std::endl;
-
+					//m_fChannel << "[checkRealTimeSpoolTimer]: " << packet.getTimeLimit() << " seconds passed" << std::endl;
 					//既不在收合约也不在恢复快照
 					if (!isOnInstrumentDef() && !isOnMarketRecovery())
 					{
-						unsubscribe(sock);
 						resetIncremental();
 						subscribeInstrumentDef();
 					}
@@ -326,7 +324,7 @@ namespace MDP
 						setOnInstrumentDef(false);
 						//收完合约后，订阅快照和实时行情
 						subscribeMarketRecovery();
-						subscribeIncremental();
+						//subscribeIncremental();
 					}
 				}
 			}
