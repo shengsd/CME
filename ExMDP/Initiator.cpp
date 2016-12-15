@@ -297,22 +297,15 @@ namespace MDP
 					pBuf += 2;
 					len -= 2;
 
-					CarCallbacks carCbs(listener, &m_fMDPLog);
-					//CarCallbacks carCbs(listener);
+					//CarCallbacks carCbs(listener, &m_fMDPLog);
+					CarCallbacks carCbs(listener);
 					listener.dispatchMessageByHeader(m_irRepoX.header(), &m_irRepoX)
 						.resetForDecode(pBuf , len)
 						.subscribe(&carCbs, &carCbs, &carCbs);
 
 					if (carCbs.getStatus())
 					{
-						//WriteLog("[ProcessThread]: parse success, message template ID:%d", listener.getTemplateId());
 						//½âÎö³É¹¦
-						//g_lpfnWriteLog(LOG_DEBUG, "[onProcessorStart]: packet parse success");
-						
-						if (listener.getTemplateId() == 38)
-						{
-							WriteLog("[onProcessorStart]: stop here");
-						}
 						m_application->onMarketData(carCbs.getFieldMapPtr(), listener.getTemplateId());
 					}
 					else

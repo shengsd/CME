@@ -1381,8 +1381,6 @@ void Worker::SnapShot(MDPFieldMap* pFieldMap)
 			if (pField = pFieldMapInGroup->getField(FIELD::MDPriceLevel))
 			{
 				nLevel = (int)pField->getInt();
-				if (nLevel > 10 || nLevel < 1)
-					continue;
 			}
 			switch (cMDEntryType)
 			{
@@ -1484,12 +1482,11 @@ void Worker::UpdateQuoteItem(MDPFieldMap* pFieldMap)
 				nSecurityID = (int)pField->getInt();
 			}
 
-			m_fCMEdemoLog << "[Worker::UpdateQuoteItem]: SecurityID:" << nSecurityID << std::endl;
 			Instrument inst;
 			//是否在合约列表中
 			if (GetInstrumentBySecurityID(nSecurityID, inst))
 			{
-				m_fCMEdemoLog <<  "[Worker::UpdateQuoteItem]: GetInstrumentBySecurityID failed." << std::endl;
+				m_fCMEdemoLog <<  "[Worker::UpdateQuoteItem]: GetInstrumentBySecurityID failed." <<" SecurityID=" << nSecurityID <<  std::endl;
 				continue;
 			}
 
@@ -1583,11 +1580,7 @@ void Worker::UpdateQuoteItem(MDPFieldMap* pFieldMap)
 			{
 				nLevel = (int)pField->getUInt();
 			}
-			if (nLevel < 1 || nLevel >10 )//错误的数值会引起其它问题
-			{
-				m_fCMEdemoLog << "Invalid nLevel: " << nLevel << std::endl;
-				continue;
-			}
+
 			//价格
 			double dMDEntryPx = 0;
 			if (pField = pFieldMapInGroup->getField(FIELD::MDEntryPx))

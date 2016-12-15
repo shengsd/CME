@@ -87,7 +87,7 @@ public:
         {
             return -1;
         }
-        std::cout << "IR Filename " << filename << " length " << length_ << std::endl;
+        //std::cout << "IR Filename " << filename << " length " << length_ << std::endl;
         if (length_ == 0)
         {
             return -1;
@@ -204,7 +204,7 @@ protected:
         frame.wrapForDecode(buffer_, offset, frame.sbeBlockLength(), frame.sbeSchemaVersion(), length_);
 
         tmpLen = frame.getPackageName(tmp, sizeof(tmp));
-        ::std::cout << "Reading IR package=\"" << std::string(tmp, tmpLen) << "\" id=" << frame.irId() << ::std::endl;
+        //::std::cout << "Reading IR package=\"" << std::string(tmp, tmpLen) << "\" id=" << frame.irId() << ::std::endl;
 
         frame.getNamespaceName(tmp, sizeof(tmp));
         frame.getSemanticVersion(tmp, sizeof(tmp));
@@ -250,7 +250,7 @@ protected:
 
             if (token.signal() == SignalCodec::BEGIN_COMPOSITE)
             {
-                std::cout << " Header name=\"" << std::string(name, nameLen) << "\"";
+                //std::cout << " Header name=\"" << std::string(name, nameLen) << "\"";
             }
 
             if (token.signal() == SignalCodec::END_COMPOSITE)
@@ -259,7 +259,7 @@ protected:
             }
         }
 
-        std::cout << " length " << size << std::endl;
+        //std::cout << " length " << size << std::endl;
 
         if (header_ != NULL)
         {
@@ -298,9 +298,9 @@ protected:
 
             if (token.signal() == SignalCodec::BEGIN_MESSAGE)
             {
-                std::cout << " Message name=\"" << std::string(name, nameLen) << "\"";
-                std::cout << " id=\"" << token.fieldId() << "\"";
-                std::cout << " version=\"" << (int)token.sbeSchemaVersion() << "\"";
+                //std::cout << " Message name=\"" << std::string(name, nameLen) << "\"";
+                //std::cout << " id=\"" << token.fieldId() << "\"";
+                //std::cout << " version=\"" << (int)token.sbeSchemaVersion() << "\"";
             }
 
             if (token.signal() == SignalCodec::END_MESSAGE)
@@ -309,7 +309,7 @@ protected:
             }
         }
 
-        std::cout << " length " << size << std::endl;
+        //std::cout << " length " << size << std::endl;
 
         // save buffer_ + offset as start of message and size as length
 
