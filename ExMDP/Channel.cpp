@@ -14,6 +14,7 @@ namespace MDP
 	 m_LastMsgSeqNumProcessed( 1 ),
 	 m_bOnInstrumentDef( false ),
 	 m_bOnMarketRecovery( false ),
+	 m_InstDefComplete( false ),
 	 m_InstrumentDefProcessedNum( 0 ),
 	 m_MarketRecoveryProcessedNum( 0 )
 	{
@@ -34,10 +35,10 @@ namespace MDP
 		m_fChannel.close();
 	}
 
-	void Channel::onEvent( const std::string& value )
-	{
+	//void Channel::onEvent( const std::string& value )
+	//{
 		//m_fEvents << value << std::endl;
-	}
+	//}
 
 	//void Channel::onData( const char* value, int size)
 	//{
@@ -127,7 +128,7 @@ namespace MDP
 	void Channel::processInstrumentDefPacket(Packet& packet, const int sock)
 	{
 		//Recovery状态中才处理
-		if ( !isOnInstrumentDef() )
+		if ( !m_bOnInstrumentDef )
 		{
 			m_fChannel << "the channel is not on Instrument Recovery, ignore this packet" << std::endl;
 			return;
@@ -158,7 +159,7 @@ namespace MDP
 			}
 		}
 
-		if (!isOnInstrumentDef())
+		if (!m_bOnInstrumentDef)
 		{
 			resetInstrumentDef();
 			m_fChannel << "Instrument Recovery completed, reset Instrument Recovery Feed..." << std::endl;
@@ -168,7 +169,7 @@ namespace MDP
 	void Channel::processMarketRecoveryPacket( Packet& packet, const int sock )
 	{
 		//不在恢复状态中？
-		if (!isOnMarketRecovery())
+		if (!m_bOnMarketRecovery)
 		{
 			m_fChannel << "the channel is not on market recovery, ignore this packet" << std::endl;
 			return;
@@ -199,7 +200,7 @@ namespace MDP
 			}
 		}
 
-		if (!isOnMarketRecovery())
+		if (!m_bOnMarketRecovery)
 		{
 			resetMarketRecovery();
 			m_fChannel << "Market Recovery completed, reset Market Recovery Feed..." << std::endl;
@@ -232,7 +233,7 @@ namespace MDP
 			// there's a gap
 			if (seqNum > m_IncrementalNextSeqNum)
 			{
-				m_fChannel << "[checkRealTimeSpoolTimer]: still have a gap, current num:" << seqNum << ", need num:" << m_IncrementalNextSeqNum << std::endl;
+				m_fChannel << "[checkRealTimeSpoolTimer]: still have a gap, current SeqNum=" << seqNum << ", need SeqNum=" << m_IncrementalNextSeqNum << std::endl;
 				/*
 				//time limit hasn't been reached, so it's still not an unrecoverable gap. Return and wait..
 				//No retransmission request sent for this message before
@@ -249,16 +250,20 @@ namespace MDP
 				//missed. Recover the lost data from Market Recovery Server.
 				if (seqNum - m_IncrementalNextSeqNum >= 5 || packet.getTimeLimit() >= m_poolTimeLimit) 
 				{
-					//m_fChannel << "[checkRealTimeSpoolTimer]: " << packet.getTimeLimit() << " seconds passed" << std::endl;
+					m_fChannel << "[checkRealTimeSpoolTimer]: The packets have been permanently missed." << std::endl;
+
 					//既不在收合约也不在恢复快照
-					if (!isOnInstrumentDef() && !isOnMarketRecovery())
+					if (!m_bOnInstrumentDef && !m_bOnMarketRecovery)
 					{
 						resetIncremental();
-						subscribeInstrumentDef();
+						if (m_InstDefComplete)//已经收过合约
+							subscribeMarketRecovery();//直接订阅快照
+						else
+							subscribeInstrumentDef();//先订阅合约
 					}
 					else
 					{
-						m_fChannel << "[checkRealTimeSpoolTimer]: already started recovery" << std::endl;
+						m_fChannel << "[checkRealTimeSpoolTimer]: Already Started Market Recovery." << std::endl;
 					}
 				}
 				return;
@@ -321,10 +326,10 @@ namespace MDP
 					{
 						m_fChannel << "[onPushInstrumentDefPacket]: Completed, received " << m_InstrumentDefProcessedNum << " messages." << std::endl;
 						unsubscribe(sock);
-						setOnInstrumentDef(false);
-						//收完合约后，订阅快照和实时行情
+						m_bOnInstrumentDef = false;
+						m_InstDefComplete = true;
+						//收完合约后，订阅快照
 						subscribeMarketRecovery();
-						//subscribeIncremental();
 					}
 				}
 			}
@@ -379,7 +384,7 @@ namespace MDP
 						m_IncrementalNextSeqNum = m_LastMsgSeqNumProcessed + 1;
 						m_fChannel << "[processSnapShotPacket]SnapShot Completed, received " << m_MarketRecoveryProcessedNum << " messages, m_RealTimeNextSeqNum : " << m_IncrementalNextSeqNum << std::endl;
 						unsubscribe(sock);
-						setOnMarketRecovery(false);
+						m_bOnMarketRecovery = false;
 					}
 				}
 			}
@@ -400,7 +405,7 @@ namespace MDP
 	{
 		if (m_initiator->SubscribeMarketRecovery( m_ChannelID ))
 		{
-			setOnMarketRecovery(true);
+			m_bOnMarketRecovery = true;
 			m_fChannel << "subscribe Market Recovery" << std::endl;
 		}
 	}
@@ -409,7 +414,7 @@ namespace MDP
 	{
 		if ( m_initiator->SubscribeInstrumentDefinition( m_ChannelID ) )
 		{
-			setOnInstrumentDef( true );
+			m_bOnInstrumentDef = true;
 			m_fChannel << "subscribe Instrument Definition!" << std::endl;
 		}
 	}

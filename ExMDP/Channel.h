@@ -49,14 +49,6 @@ namespace MDP
 		void subscribeInstrumentDef();
 		//退出组播
 		void unsubscribe(const int socket);
-		
-		//Instrument Definition服务状态设置
-		void setOnInstrumentDef( bool value ) { m_bOnInstrumentDef = value; }
-		bool isOnInstrumentDef() { return m_bOnInstrumentDef; }
-
-		//Market Recovery服务状态设置
-		void setOnMarketRecovery( bool value ) { m_bOnMarketRecovery = value; }
-		bool isOnMarketRecovery() { return m_bOnMarketRecovery; }
 
 		//包处理序号自增
 		void increaseIncrementalNextSeqNum() { ++m_IncrementalNextSeqNum; }
@@ -67,7 +59,7 @@ namespace MDP
 		void resetMarketRecovery();
 		void resetInstrumentDef();
 
-		void onEvent( const std::string& );
+		//void onEvent( const std::string& );
 
 		//void onData( const char* , int );
 
@@ -84,17 +76,17 @@ namespace MDP
 		//Incremental标志
 		//bool m_bOnIncremental;
 
-		//Instrument Definition服务标志
+		//是否已经订阅Instrument Definition
 		bool m_bOnInstrumentDef;
 
-		//Market Recovery服务标志
+		//是否已经订阅Market Recovery
 		bool m_bOnMarketRecovery;
 
 		//快照恢复完成标志
 		//bool m_SnapShotComplete;
 
 		//合约定义恢复完成标志
-		//bool m_InstDefComplete;
+		bool m_InstDefComplete;
 
 		//合约定义通道序号
 		unsigned m_InstrumentDefNextSeqNum;
