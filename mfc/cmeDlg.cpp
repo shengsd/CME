@@ -410,7 +410,7 @@ void CcmeDlg::OnBnClickedEnter()
 	_tcscpy_s(order.OrderQty, _countof(order.OrderQty), csOrderQty);
 
 	CString csMaxShow;
-	m_MaxShow.GetWindowTextA(csMaxShow);
+	m_MaxShow.GetWindowText(csMaxShow);
 	_tcscpy_s(order.MaxShow, _countof(order.MaxShow), csMaxShow);
 
 	CString csOrdType;
@@ -421,6 +421,7 @@ void CcmeDlg::OnBnClickedEnter()
 		return;
 	}
 	order.OrdType[0] = csOrdType.GetAt(0);
+
 	switch (order.OrdType[0])
 	{
 	case _T('1')://Market order (with protection) 
@@ -477,10 +478,6 @@ void CcmeDlg::OnBnClickedEnter()
 	
 	CString csTimeInforce;
 	m_TimeInForce.GetWindowText(csTimeInforce);
-	if (csTimeInforce.IsEmpty())
-	{
-		csTimeInforce = _T("0");
-	}
 	order.TimeInForce[0] = csTimeInforce.GetAt(0);
 	switch (order.TimeInForce[0])
 	{

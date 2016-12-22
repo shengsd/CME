@@ -178,23 +178,25 @@ int Worker::EnterOrder(ORDER& order)
 	pBody->SetFieldValue(FIELD::Symbol, order.Symbol);
 
 	//订单有效期
-	pBody->SetFieldValue(FIELD::TimeInForce, order.TimeInForce);
-	switch (order.TimeInForce[0])
+	if (order.TimeInForce[0] != _T('-'))
 	{
-	case _T('0')://Day
-		break;
-	case _T('1')://Good Till Cancel (GTC)
-		break;
-	case _T('3')://Fill and Kill
-		pBody->SetFieldValue(FIELD::MinQty, order.MinQty);
-		break;
-	case _T('6')://Good Till Date
-		pBody->SetFieldValue(FIELD::ExpireDate, order.ExpireDate);
-		break;
-	default:
-		break;
+		pBody->SetFieldValue(FIELD::TimeInForce, order.TimeInForce);
+		switch (order.TimeInForce[0])
+		{
+		case _T('0')://Day
+			break;
+		case _T('1')://Good Till Cancel (GTC)
+			break;
+		case _T('3')://Fill and Kill
+			pBody->SetFieldValue(FIELD::MinQty, order.MinQty);
+			break;
+		case _T('6')://Good Till Date
+			pBody->SetFieldValue(FIELD::ExpireDate, order.ExpireDate);
+			break;
+		default:
+			break;
+		}
 	}
-
 	//下单时间 (UTC format YYYYMMDD-HH:MM:SS.sss)
 	TCHAR szTransactTime[64];
 	_stprintf_s(szTransactTime, _countof(szTransactTime), _T("%d%02d%02d-%02d:%02d:%02d.%03d"), st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
@@ -419,7 +421,7 @@ int Worker::AlterOrder(ORDER& order)
 	pBody->SetFieldValue(FIELD::CorrelationClOrdID, order.CorrelationClOrdID);
 
 	//Indicates whether the cancel/replace supports IFM.认证中没有选择支持
-	pBody->SetFieldValue(FIELD::OFMOverride, "N");
+	pBody->SetFieldValue(FIELD::OFMOverride, "Y");
 
 	//发送消息  //即时失败也不改回被改订单
 	if(0 != SendMessageByID(pMsg, m_pTradeSession))
