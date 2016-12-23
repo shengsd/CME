@@ -1587,7 +1587,7 @@ void Worker::UpdateQuoteItem(MDPFieldMap* pFieldMap)
 			double dMDEntryPx = 0;
 			if (pField = pFieldMapInGroup->getField(FIELD::MDEntryPx))
 			{
-				dMDEntryPx = (double)(pField->getInt() * pow(10.0, (int)pField->getInt(1)));// pow(10.0, -7) * pInst->DisplayFactor * pInst->convBase;
+				dMDEntryPx = (double)(pField->getInt() * pow(10.0, (int)pField->getInt(1)));// pow(10.0, -7) * 10^pInst->DisplayFactor * pInst->convBase;
 			}
 			//ÊıÁ¿
 			int nQty = 0;
