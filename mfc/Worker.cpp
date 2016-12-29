@@ -177,26 +177,6 @@ int Worker::EnterOrder(ORDER& order)
 	//Product Code 行情接口里是Asset
 	pBody->SetFieldValue(FIELD::Symbol, order.Symbol);
 
-	//订单有效期
-	if (order.TimeInForce[0] != _T('-'))
-	{
-		pBody->SetFieldValue(FIELD::TimeInForce, order.TimeInForce);
-		switch (order.TimeInForce[0])
-		{
-		case _T('0')://Day
-			break;
-		case _T('1')://Good Till Cancel (GTC)
-			break;
-		case _T('3')://Fill and Kill
-			pBody->SetFieldValue(FIELD::MinQty, order.MinQty);
-			break;
-		case _T('6')://Good Till Date
-			pBody->SetFieldValue(FIELD::ExpireDate, order.ExpireDate);
-			break;
-		default:
-			break;
-		}
-	}
 	//下单时间 (UTC format YYYYMMDD-HH:MM:SS.sss)
 	TCHAR szTransactTime[64];
 	_stprintf_s(szTransactTime, _countof(szTransactTime), _T("%d%02d%02d-%02d:%02d:%02d.%03d"), st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
@@ -214,11 +194,37 @@ int Worker::EnterOrder(ORDER& order)
 	//The type of business conducted. 0=Customer 1=Firm
 	pBody->SetFieldValue(FIELD::CustomerOrFirm, _T("1"));
 
-	//MaxShow 冰山单里的最大显示数量，这里非0才添加该字段
+	//订单有效期，'-'表示不发送
+	if (order.TimeInForce[0] != _T('-'))
+	{
+		pBody->SetFieldValue(FIELD::TimeInForce, order.TimeInForce);
+		switch (order.TimeInForce[0])
+		{
+		case _T('0')://Day
+			break;
+		case _T('1')://Good Till Cancel (GTC)
+			break;
+		case _T('3')://Fill and Kill
+			break;
+		case _T('6')://Good Till Date
+			pBody->SetFieldValue(FIELD::ExpireDate, order.ExpireDate);
+			break;
+		default:
+			break;
+		}
+	}
+
+	//MaxShow 冰山单里的最大显示数量，0表示不发送该字段
 	//Not available for CME Interest Rate Optons
 	if (atoi(order.MaxShow) != 0)
 	{
 		pBody->SetFieldValue(FIELD::MaxShow, order.MaxShow);
+	}
+
+	//MinQty 最少成交数量，0表示不发送该字段
+	if (atoi(order.MinQty) != 0)
+	{
+		pBody->SetFieldValue(FIELD::MinQty, order.MinQty);
 	}
 
 	//CtiCode TODO: 不是很清楚有什么用

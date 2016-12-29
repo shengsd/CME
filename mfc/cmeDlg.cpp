@@ -409,10 +409,6 @@ void CcmeDlg::OnBnClickedEnter()
 	}
 	_tcscpy_s(order.OrderQty, _countof(order.OrderQty), csOrderQty);
 
-	CString csMaxShow;
-	m_MaxShow.GetWindowText(csMaxShow);
-	_tcscpy_s(order.MaxShow, _countof(order.MaxShow), csMaxShow);
-
 	CString csOrdType;
 	m_OrdType.GetWindowText(csOrdType);
 	if (csOrdType.IsEmpty())
@@ -475,7 +471,26 @@ void CcmeDlg::OnBnClickedEnter()
 	default:
 		break;
 	}
-	
+
+	//非必要字段，约定0表示不发送
+	CString csMinQty;
+	m_MinQty.GetWindowText(csMinQty);
+	if (csMinQty.IsEmpty())//前台为空，就表示不发送该字段
+	{
+		order.MinQty[0] = '0';
+	}
+	_tcscpy_s(order.MinQty, _countof(order.MinQty), csMinQty);
+
+	//非必要字段，约定0表示不发送
+	CString csMaxShow;
+	m_MaxShow.GetWindowText(csMaxShow);
+	if (csMaxShow.IsEmpty())//前台为空，就表示不发送该字段
+	{
+		order.MaxShow[0] = '0';
+	}
+	_tcscpy_s(order.MaxShow, _countof(order.MaxShow), csMaxShow);
+
+	//非必要字段，第一个字符为'-'表示不发送
 	CString csTimeInforce;
 	m_TimeInForce.GetWindowText(csTimeInforce);
 	order.TimeInForce[0] = csTimeInforce.GetAt(0);
@@ -486,17 +501,7 @@ void CcmeDlg::OnBnClickedEnter()
 	case _T('1')://Good Till Cancel (GTC)
 		break;
 	case _T('3')://Fill and Kill
-		{
-			CString csMinQty;
-			m_MinQty.GetWindowText(csMinQty);
-			if (csMinQty.IsEmpty())
-			{
-				MessageBox(_T("MinQty"), _T("Warning"));
-				return;
-			}
-			_tcscpy_s(order.MinQty, _countof(order.MinQty), csMinQty);
-			break;
-		}
+		break;
 	case _T('6')://Good Till Date
 		{
 			SYSTEMTIME st;
