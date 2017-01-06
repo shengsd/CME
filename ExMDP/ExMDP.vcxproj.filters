@@ -131,9 +131,6 @@
     <ClCompile Include="Initiator.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
-    <ClCompile Include="Packet.cpp">
-      <Filter>源文件</Filter>
-    </ClCompile>
     <ClCompile Include="include\otf_api\Ir.cpp">
       <Filter>SBEdecoder\Source</Filter>
     </ClCompile>
