@@ -205,7 +205,8 @@ namespace MDP
 				//The RetransRequest failed or took too long and the gap wasn't
 				//filled by the other feed - The packets have been permanently
 				//missed. Recover the lost data from Market Recovery Server.
-				if (seqNum - m_IncrementalNextSeqNum >= 5 || packet.getTimeLimit() >= m_poolTimeLimit) 
+				//if (seqNum - m_IncrementalNextSeqNum >= MSG_SEQ_NUM_GAP || packet.getTimeLimit() >= m_poolTimeLimit)
+				if (seqNum - m_IncrementalNextSeqNum >= MSG_SEQ_NUM_GAP)
 				{
 					m_fChannel << "[checkRealTimeSpoolTimer]: The packets have been permanently missed." << std::endl;
 
@@ -236,8 +237,8 @@ namespace MDP
 			else
 			{
 				//已经处理过，从缓存中删除
-				m_fChannel << "[checkRealTimeSpoolTimer]: already processed packet, num:" << seqNum << " i->first:" << i->first << std::endl;
-				m_mapSpoolPacket.erase(i);//可以清空
+				m_fChannel << "[checkRealTimeSpoolTimer]: already processed packet, num:" << seqNum << std::endl;
+				m_mapSpoolPacket.erase(i);
 			}
 		}
 	}

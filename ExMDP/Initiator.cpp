@@ -173,11 +173,8 @@ namespace MDP
 			if ( !m_pThreadHandles[i] )
 			{
 				WriteLog("[Initiator::Start]: Unable to spawn work thread! thread num:%d\n", i);
-				strcpy(configStruct->errorInfo, "[Initiator::Start]: Unable to spawn work thread!\n");
-				return 1;
 			}
 		}
-		
 		return 0;
 	}
 
@@ -261,7 +258,7 @@ namespace MDP
 		pOverlapped->dataBuf.len = BUFFER_SIZE;
 		pOverlapped->fromAddrLen = sizeof(pOverlapped->fromAddr);
 		int iRet = WSARecvFrom(pCompKey->s, &(pOverlapped->dataBuf), 1, &(pOverlapped->recvBytes), &(pOverlapped->flags), &(pOverlapped->fromAddr), &(pOverlapped->fromAddrLen), &(pOverlapped->overlapped), NULL);
-		if (iRet == 0)//测试
+		if (iRet == 0)
 		{
 			WriteLog("[Initiator::Subscribe]: receive operation has completed immediately");
 		}
@@ -281,7 +278,6 @@ namespace MDP
 				WriteLog("[Initiator::Subscribe]: WSARecvFrom error=%d", nError);
 			}
 		}
-
 		return TRUE;
 	}
 
@@ -338,20 +334,21 @@ namespace MDP
 				dwLastErrorCode = GetLastError();
 				if (pOverlapped == NULL)
 				{
-					WriteLog("[Initiator::WorkThread %d]: GetQueuedCompletionStatus failed! pOverlapped is NULL, GetLastError()=%d", nThreadNum, dwLastErrorCode);
-					if (dwLastErrorCode == ERROR_ABANDONED_WAIT_0)
+					if (dwLastErrorCode == ERROR_ABANDONED_WAIT_0)//完成端口关闭
 					{
+						WriteLog("[Initiator::WorkThread %d]: GetQueuedCompletionStatus failed! The completion port handle associated with it is closed!", nThreadNum);
 						break;
 					}
+					WriteLog("[Initiator::WorkThread %d]: GetQueuedCompletionStatus failed! pOverlapped is NULL, GetLastError()=%d", nThreadNum, dwLastErrorCode);
 				}
 				else
 				{
 					WriteLog("[Initiator::WorkThread %d]: GetQueuedCompletionStatus failed! GetLastError()=%d", nThreadNum, dwLastErrorCode);
 				}
-				continue;//？
+				continue;
 			}
 
-			WriteLog("[Initiator::WorkThread %d]: GetQueuedCompletionStatus succeed! lpNumberOfBytes=%d", nThreadNum, dwBytesTransferred);
+			//WriteLog("[Initiator::WorkThread %d]: GetQueuedCompletionStatus succeed! lpNumberOfBytes=%d", nThreadNum, dwBytesTransferred);
 			
 			if (pCompKey && pOverlapped)
 			{
@@ -361,7 +358,8 @@ namespace MDP
 				
 				//继续接收
 				int iRet = WSARecvFrom(pCompKey->s, &(pOverlapped->dataBuf), 1, &(pOverlapped->recvBytes), &(pOverlapped->flags), &(pOverlapped->fromAddr), &(pOverlapped->fromAddrLen), &(pOverlapped->overlapped), NULL);
-				if (iRet == 0)//测试
+#ifdef _DEBUG
+				if (iRet == 0)
 				{
 					WriteLog("[Initiator::WorkThread %d]: WSARecvFrom receive operation has completed immediately", nThreadNum);
 				}
@@ -380,8 +378,8 @@ namespace MDP
 					{
 						WriteLog("[Initiator::WorkThread %d]: WSARecvFrom error=%d", nThreadNum, nError);
 					}
-					
 				}
+#endif // _DEBUG
 			}
 		}
 		WriteLog("[Initiator::WorkThread %d]: Exited", nThreadNum);

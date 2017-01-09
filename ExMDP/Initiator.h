@@ -1,6 +1,5 @@
 #pragma once
 
-#include <queue>
 #include "ExMDP.h"
 #include "SBEdecoder.h"
 #include "Channel.h"
@@ -51,7 +50,6 @@ namespace MDP
 
 		//SBE解析模板文件,非线程安全
 		IrRepo m_irRepo;
-
 		CRITICAL_SECTION m_csirRepo;
 
 	private:
@@ -97,8 +95,6 @@ namespace MDP
 
 		//根据ChannelID查找Channel：ChannelID -> Channel*
 		MAPChannels m_mapChannels;
-
-
 
 //--------------重发服务-----------------
 		//会话

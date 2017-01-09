@@ -4,6 +4,7 @@
 
 namespace MDP
 {
+#define MSG_SEQ_NUM_GAP 5
 	typedef std::set < SOCKET > Sockets;
 	typedef struct _PER_SOCKET_DATA
 	{
