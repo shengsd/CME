@@ -1,8 +1,31 @@
 #pragma once
 #include "Packet.h"
 #include "Initiator.h"
+
 namespace MDP
 {
+#define MSG_SEQ_NUM_GAP 5
+	typedef std::set < SOCKET > Sockets;
+	typedef struct _PER_SOCKET_DATA
+	{
+		SOCKET  s;
+		int nDataType;
+		void *pChannel;
+	}PER_SOCKET_DATA;
+
+#define BUFFER_SIZE 4096
+	typedef struct _PER_IO_DATA
+	{
+		OVERLAPPED  overlapped;
+		WSABUF dataBuf;
+		CHAR   buffer[BUFFER_SIZE];
+		DWORD recvBytes;
+		DWORD sendBytes;
+		DWORD flags;
+		SOCKADDR  fromAddr;
+		int fromAddrLen;
+	}PER_IO_DATA;
+
 	typedef int ChannelID;
 	class Initiator;
 	class Channel
@@ -11,20 +34,17 @@ namespace MDP
 		Channel( const std::string&, Initiator* );
 		~Channel();
 
-		Initiator* m_initiator;
-
-		//从sock读取包，connectType为包类型
-		bool read( const int sock, int connectType );
+		///数据处理
+		void ProcessData(PER_SOCKET_DATA *pCompKey, PER_IO_DATA *pOverlapped);
+		//处理实时行情包
+		void processIncrementalPacket(Packet& packet, int socket);
+		//处理合约定义行情包
+		void processInstrumentDefPacket(Packet& packet, int socket);
+		//处理快照行情包
+		void processMarketRecoveryPacket(Packet& packet, int socket);
 
 		//有效行情包推送
-		void PushPacket( Packet& packet);
-
-		//处理实时行情包
-		void processIncrementalPacket( Packet& packet, const int sock);
-		//处理合约定义行情包
-		void processInstrumentDefPacket( Packet& packet, const int sock);
-		//处理快照行情包
-		void processMarketRecoveryPacket( Packet& packet, const int sock);
+		void PushPacket( char* str, int size );
 
 		//缓存实时行情包（序号过大）
 		void spoolIncrementalPacket( Packet& packet );
@@ -47,34 +67,28 @@ namespace MDP
 		void subscribeMarketRecovery();
 		//订阅Instrument Replay Feed
 		void subscribeInstrumentDef();
-		//退出组播
+		//关闭socket
 		void unsubscribe(const int socket);
+		void unsubscribeAll();
 
 		//包处理序号自增
 		void increaseIncrementalNextSeqNum() { ++m_IncrementalNextSeqNum; }
 		void increaseMarketRecoveryNextSeqNum() { ++m_MarketRecoveryNextSeqNum; }
 		void increaseInstrumentDefNextSeqNum() { ++m_InstrumentDefNextSeqNum; }
 
-		void resetIncremental();
 		void resetMarketRecovery();
 		void resetInstrumentDef();
 
-		//void onEvent( const std::string& );
+		Initiator* m_initiator;
 
-		//void onData( const char* , int );
-
-		//有效行情包队列
-		//std::queue<Packet> m_packetQueue;
-
-	private:
-		///Application& m_application;
-		
 		std::string m_ChannelID;
 
-//		typedef std::queue<Packet> PacketQueue;
+		PER_SOCKET_DATA m_CompKey[6];
 
-		//Incremental标志
-		//bool m_bOnIncremental;
+		PER_IO_DATA m_Overlapped[6];
+
+		Sockets m_setSockets;
+	private:
 
 		//是否已经订阅Instrument Definition
 		bool m_bOnInstrumentDef;
@@ -104,18 +118,15 @@ namespace MDP
 		//快照通道处理消息数量
 		unsigned m_MarketRecoveryProcessedNum;
 
-		//refresh sever的使用条件，超过这个时长（）
+		//refresh sever的使用条件，超过这个时长
 		const int m_poolTimeLimit;
 
 		//缓存行情包
-		typedef std::map< unsigned int, Packet > PacketSpool;
-		PacketSpool m_IncrementalPacketSpool;
-		PacketSpool m_InstrumentDefPacketSpool;
-		PacketSpool m_MarketRecoveryPacketSpool;
+		typedef std::map< unsigned int, SpoolPacket > MAPSpoolPacket;
+		MAPSpoolPacket m_mapSpoolPacket;
 
-		//从socket读取的数据直接存到Packet中
-		//char m_buffer[2048];
-		//size_t m_len;
+		//单个channel中的消息处理必须是线程安全的
+		CRITICAL_SECTION m_csChannel;
 
 		std::ofstream m_fPackets;
 		std::ofstream m_fChannel;

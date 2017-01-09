@@ -967,9 +967,17 @@ BOOL Worker::GetOrderByClOrderID(const CString csClOrderID, ORDER& order)
 UINT Worker::startQuote()
 {
 	WriteLog(LOG_INFO, "MDP3.0 Engine Starting, please wait...");
-	//WriteLog(LOG_ERROR, "%s", szConfigPath);
-	_mkdir(".\\CME");
-	m_fCMEdemoLog.open(".\\CME\\CMEdemo.log", std::ios::out | std::ios::binary | std::ios::trunc);
+	//打开（创建）日志文件
+	char szPath[MAX_PATH] = {0};
+	GetModuleFileName(NULL, szPath, MAX_PATH);
+	char* pExeDir = strrchr(szPath, '\\');
+	*pExeDir = '\0';
+	sprintf(szPath, "%s\\MDPEngineLog", szPath);
+	_mkdir(szPath);
+	SYSTEMTIME st;
+	GetSystemTime(&st);
+	sprintf(szPath, "%s\\CMEdemo.log", szPath);
+	m_fCMEdemoLog.open(szPath, std::ios::out | std::ios::binary | std::ios::trunc);
 	if (!m_fCMEdemoLog.is_open())
 	{
 		WriteLog(LOG_ERROR, "Open CMEdemo.log failed\n");
@@ -979,7 +987,7 @@ UINT Worker::startQuote()
 	ConfigStruct configStruct;
 	char szModulePath[MAX_PATH] = {0};
 	GetModuleFileName(NULL, szModulePath, MAX_PATH);
-	char* pExeDir = strrchr(szModulePath, '\\');
+	pExeDir = strrchr(szModulePath, '\\');
 	*pExeDir = '\0';
 	sprintf(configStruct.configFile, "%s\\Config\\config.xml", szModulePath);//"..\\Release\\config.xml";////////////////argv[ 1 ];$(TargetDir)\\config.xml 
 	sprintf(configStruct.templateFile, "%s\\Config\\templates_FixBinary.sbeir", szModulePath);//"..\\Release\\templates_FixBinary.sbeir";////////////////argv[ 2 ];$(TargetDir)\\templates_FixBinary.sbeir
